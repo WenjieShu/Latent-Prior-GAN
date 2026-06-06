@@ -1,4 +1,4 @@
-# FD-Loss iMF Decoder Post-Training
+# iMF Decoder Post-Training
 
 This repository contains clean training code for two decoder-side iMF/GAR
 post-training paths:
