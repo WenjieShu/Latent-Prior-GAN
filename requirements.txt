@@ -1,0 +1,20 @@
+# Minimal training dependencies for this clean package.
+# The cluster experiments currently use /mnt/nfs/wenjie/FD-Loss/.venv.
+
+torch
+torchvision
+diffusers
+huggingface_hub
+numpy
+Pillow
+PyYAML
+tqdm
+wandb
+
+# Optional: only needed if converting original JAX/Flax iMF checkpoints with
+# tools/convert_jax_to_pytorch.py. Not needed when using already converted
+# PyTorch checkpoints such as /mnt/nfs/wenjie/IMF-GAP_V1/checkpoints/pytorch/*.pt.
+jax
+jaxlib
+flax
+optax
