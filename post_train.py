@@ -182,10 +182,15 @@ def ddp_decoder_state_dict(decoder_module):
 
 
 def load_ddp_decoder_state(decoder_module, state):
+    decoder_is_wrapped = hasattr(decoder_module.tokenizer.vae.decoder, "module")
     remapped = {}
     for key, value in state.items():
-        if key.startswith("tokenizer.vae.decoder.") and not key.startswith("tokenizer.vae.decoder.module."):
+        has_module_prefix = key.startswith("tokenizer.vae.decoder.module.")
+        has_decoder_prefix = key.startswith("tokenizer.vae.decoder.")
+        if decoder_is_wrapped and has_decoder_prefix and not has_module_prefix:
             key = key.replace("tokenizer.vae.decoder.", "tokenizer.vae.decoder.module.", 1)
+        elif not decoder_is_wrapped and has_module_prefix:
+            key = key.replace("tokenizer.vae.decoder.module.", "tokenizer.vae.decoder.", 1)
         remapped[key] = value
     decoder_module.load_state_dict(remapped, strict=True)
 
@@ -268,12 +273,13 @@ def main():
 
     loss_module = GenerationGANLoss(args).to(device)
 
-    decoder.tokenizer.vae.decoder = DDP(
-        decoder.tokenizer.vae.decoder,
-        device_ids=[args.gpu],
-        find_unused_parameters=False,
-    )
-    loss_module = DDP(loss_module, device_ids=[args.gpu], find_unused_parameters=False)
+    if getattr(args, "distributed", False):
+        decoder.tokenizer.vae.decoder = DDP(
+            decoder.tokenizer.vae.decoder,
+            device_ids=[args.gpu],
+            find_unused_parameters=False,
+        )
+        loss_module = DDP(loss_module, device_ids=[args.gpu], find_unused_parameters=False)
     loss_module.train()
 
     decoder_params = list(unwrap(decoder.tokenizer.vae.decoder).parameters())
