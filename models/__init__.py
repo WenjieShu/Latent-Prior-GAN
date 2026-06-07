@@ -1,4 +1,4 @@
-"""Clean model entry points for IMF-GAP V2."""
+"""Model entry points for Latent Prior GAN experiments."""
 
 
 def get_tokenizer():
@@ -21,6 +21,6 @@ def get_gar_loss():
     return PostTrainingLoss
 
 
-def get_extension_gar_loss():
-    from models.generation_gan_loss import GenerationGANLoss
-    return GenerationGANLoss
+def get_latent_prior_gan():
+    from models.latent_prior_gan import LatentDecoder, LatentPriorGANLoss
+    return LatentDecoder, LatentPriorGANLoss

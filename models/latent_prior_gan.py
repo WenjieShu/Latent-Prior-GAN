@@ -1,19 +1,22 @@
+"""Latent Prior GAN components."""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from models.discriminators import DinoDiscriminator
+from models.tokenizer import Tokenizer
 from utils.diff_aug import DiffAugment
 from utils.util import Pack
 
 
-def hinge_d_loss(logits_real, logits_fake):
+def hinge_discriminator_loss(logits_real, logits_fake):
     loss_real = torch.mean(F.relu(1.0 - logits_real))
     loss_fake = torch.mean(F.relu(1.0 + logits_fake))
     return 0.5 * (loss_real + loss_fake)
 
 
-def hinge_gen_loss(logits_fake):
+def hinge_generator_loss(logits_fake):
     return -torch.mean(logits_fake)
 
 
@@ -34,14 +37,26 @@ class LeCAMEMA:
         )
 
 
-def lecam_reg(logits_real, logits_fake, ema):
+def lecam_regularization(logits_real, logits_fake, ema):
     real_reg = F.relu(logits_real - ema.logits_fake_ema).pow(2).mean()
     fake_reg = F.relu(ema.logits_real_ema - logits_fake).pow(2).mean()
     return real_reg + fake_reg
 
 
-class GenerationGANLoss(nn.Module):
-    """GAN-only objective for decoder adaptation on generated iMF latents."""
+class LatentDecoder(nn.Module):
+    """SD-VAE decoder trained on latents sampled from the iMF prior."""
+
+    def __init__(self, args):
+        super().__init__()
+        self.tokenizer = Tokenizer(args)
+        self.tokenizer.train_decoder()
+
+    def forward(self, latents):
+        return self.tokenizer.decode(latents).clamp(-1, 1)
+
+
+class LatentPriorGANLoss(nn.Module):
+    """Adversarial image-space loss for latent-prior decoder adaptation."""
 
     def __init__(self, args):
         super().__init__()
@@ -58,7 +73,7 @@ class GenerationGANLoss(nn.Module):
             if real_images is None or fake_images is None:
                 raise ValueError("real_images and fake_images are required for discriminator loss")
             return self.discriminator_loss(real_images, fake_images)
-        raise ValueError(f"Unknown GAN loss mode: {mode}")
+        raise ValueError(f"Unknown Latent Prior GAN loss mode: {mode}")
 
     def generator_loss(self, fake_images):
         fake_aug = DiffAugment(
@@ -67,7 +82,7 @@ class GenerationGANLoss(nn.Module):
             prob=self.args.diff_aug_prob,
         )
         logits_fake = self.discriminator(fake_aug)
-        g_loss = hinge_gen_loss(logits_fake) * self.args.disc_weight
+        g_loss = hinge_generator_loss(logits_fake) * self.args.disc_weight
         return g_loss, Pack(
             gen_loss=g_loss,
             g_loss=g_loss.detach(),
@@ -89,8 +104,8 @@ class GenerationGANLoss(nn.Module):
         logits_fake = self.discriminator(fake_aug)
 
         self.lecam_ema.update(logits_real, logits_fake)
-        adv_loss = hinge_d_loss(logits_real, logits_fake)
-        lecam_loss = lecam_reg(logits_real, logits_fake, self.lecam_ema)
+        adv_loss = hinge_discriminator_loss(logits_real, logits_fake)
+        lecam_loss = lecam_regularization(logits_real, logits_fake, self.lecam_ema)
         d_loss = self.args.disc_weight * (
             adv_loss + self.args.lecam_loss_weight * lecam_loss
         )

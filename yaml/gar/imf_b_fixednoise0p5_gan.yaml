@@ -33,4 +33,4 @@ yaml_dir: /mnt/nfs/wenjie/IMF-GAP_V2/yaml/gar
 saver_name_pre: gar_iMF-B-2_fixednoise0p5_gan
 seed: 42
 use_wandb: false
-wandb_project: IMF-GAP-V2
+wandb_project: Latent-Prior-GAN

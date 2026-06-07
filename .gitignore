@@ -32,3 +32,4 @@ experiments/
 *.key
 wandb/
 yaml/extension_gar/*.json
+yaml/latent_prior_gan/*.json

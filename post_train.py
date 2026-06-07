@@ -1,43 +1,25 @@
-"""
-Extension-GAR decoder post-training.
-
-This entry point adapts only the SD-VAE decoder on pure iMF-generated latents.
-It intentionally does not use paired reconstruction, LPIPS, or Gram losses.
-
-Training objective:
-    z_g = G_iMF(epsilon, y)          # frozen iMF generator, nt = 1.0
-    x_fake = D_trainable(z_g)        # trainable SD-VAE decoder
-    GAN(real ImageNet images, x_fake)
-"""
+"""Latent Prior GAN training entry point."""
 
 import argparse
-import json
 import os
-import random
 import time
 import warnings
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 warnings.filterwarnings("ignore")
 
-import numpy as np
 import torch
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
 from torch import distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from data.dataloader import build_dataloader
 from models.diffusion_pytorch import DiffusionModelPyTorch
-from models.generation_gan_loss import GenerationGANLoss
-from models.tokenizer import Tokenizer
-from utils.distributed import init_distributed_mode
+from models.latent_prior_gan import LatentDecoder, LatentPriorGANLoss
+from utils.checkpointing import latent_decoder_state, load_decoder_state, tokenizer_prefixed_state
+from utils.config import load_config, save_config
+from utils.distributed import init_distributed_mode, is_main_process
+from utils.training import enable_tf32, seed_everything, set_trainable, unwrap
 from utils.util import Logger, LossManager, save_checkpoint
-
-try:
-    import yaml
-except ImportError:
-    yaml = None
 
 try:
     import wandb
@@ -45,26 +27,12 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
-
-def is_main_process():
-    return not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0
-
-
-def load_config_file(path):
-    if not path:
-        return {}
-    if yaml is None:
-        raise RuntimeError("PyYAML is required when --config is used.")
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    if not isinstance(data, dict):
-        raise ValueError(f"Config must be a mapping: {path}")
-    return data
+enable_tf32()
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Extension-GAR: GAN-only decoder adaptation on generated iMF latents."
+        description="Latent Prior GAN: decoder adaptation on generated iMF latents."
     )
     parser.add_argument("--config", default="", type=str, help="optional YAML config")
 
@@ -101,14 +69,14 @@ def parse_args():
     parser.add_argument("--diff_aug_prob", type=float, default=0.5)
     parser.add_argument("--diff_aug_cr_policy", default="color,translation,cutout_0.5")
 
-    parser.add_argument("--checkpoint_dir", default="/mnt/nfs/wenjie/IMF-GAP_V2/checkpoints/extension_gar")
-    parser.add_argument("--results_dir", default="/mnt/nfs/wenjie/IMF-GAP_V2/results/extension_gar")
-    parser.add_argument("--yaml_dir", default="/mnt/nfs/wenjie/IMF-GAP_V2/yaml/extension_gar")
+    parser.add_argument("--checkpoint_dir", default="/mnt/nfs/wenjie/Latent-Prior-GAN/checkpoints")
+    parser.add_argument("--results_dir", default="/mnt/nfs/wenjie/Latent-Prior-GAN/results")
+    parser.add_argument("--yaml_dir", default="/mnt/nfs/wenjie/Latent-Prior-GAN/yaml")
     parser.add_argument("--saver_name_pre", default="")
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--use_wandb", action="store_true", default=False)
-    parser.add_argument("--wandb_project", default="IMF-GAP-V2")
+    parser.add_argument("--wandb_project", default="Latent-Prior-GAN")
     parser.add_argument("--wandb_run_name", default="")
 
     parser.add_argument("--dist-backend", default="nccl")
@@ -118,7 +86,7 @@ def parse_args():
     if unknown:
         raise ValueError(f"Unknown arguments: {unknown}")
 
-    config = load_config_file(args.config)
+    config = load_config(args.config)
     if config:
         defaults = {k: v for k, v in config.items() if hasattr(args, k)}
         parser.set_defaults(**defaults)
@@ -130,81 +98,8 @@ def parse_args():
         )
     if not args.saver_name_pre:
         cfg_tag = "cfg" if args.use_cfg else "nocfg"
-        args.saver_name_pre = f"extension_gar_{args.model_type}_nt1_gan_only_{cfg_tag}"
+        args.saver_name_pre = f"latent_prior_gan_{args.model_type}_nt1_gan_only_{cfg_tag}"
     return args
-
-
-def seed_everything(seed):
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = True
-
-
-def save_args(args):
-    os.makedirs(args.yaml_dir, exist_ok=True)
-    path = os.path.join(args.yaml_dir, f"{args.saver_name_pre}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(vars(args), f, indent=2, sort_keys=True)
-    return path
-
-
-def unwrap(module):
-    return module.module if hasattr(module, "module") else module
-
-
-def set_requires_grad(module, requires_grad):
-    for param in module.parameters():
-        param.requires_grad = requires_grad
-
-
-def tokenizer_prefixed_state(decoder_module):
-    tokenizer_state = clean_state_dict(decoder_module.tokenizer, "vae.decoder.module.", "vae.decoder.")
-    return {f"tokenizer.{k}": v for k, v in tokenizer_state.items()}
-
-
-def clean_state_dict(module, wrapped_prefix, clean_prefix):
-    state = module.state_dict()
-    return {
-        (key.replace(wrapped_prefix, clean_prefix, 1) if key.startswith(wrapped_prefix) else key): value
-        for key, value in state.items()
-    }
-
-
-def ddp_decoder_state_dict(decoder_module):
-    return clean_state_dict(
-        decoder_module,
-        "tokenizer.vae.decoder.module.",
-        "tokenizer.vae.decoder.",
-    )
-
-
-def load_ddp_decoder_state(decoder_module, state):
-    decoder_is_wrapped = hasattr(decoder_module.tokenizer.vae.decoder, "module")
-    remapped = {}
-    for key, value in state.items():
-        has_module_prefix = key.startswith("tokenizer.vae.decoder.module.")
-        has_decoder_prefix = key.startswith("tokenizer.vae.decoder.")
-        if decoder_is_wrapped and has_decoder_prefix and not has_module_prefix:
-            key = key.replace("tokenizer.vae.decoder.", "tokenizer.vae.decoder.module.", 1)
-        elif not decoder_is_wrapped and has_module_prefix:
-            key = key.replace("tokenizer.vae.decoder.module.", "tokenizer.vae.decoder.", 1)
-        remapped[key] = value
-    decoder_module.load_state_dict(remapped, strict=True)
-
-
-class GeneratedLatentDecoder(torch.nn.Module):
-    """Trainable SD-VAE decoder applied to iMF-generated latents."""
-
-    def __init__(self, args):
-        super().__init__()
-        self.tokenizer = Tokenizer(args)
-        self.tokenizer.train_decoder()
-
-    def forward(self, z_gen):
-        return self.tokenizer.decode(z_gen).clamp(-1, 1)
 
 
 def fill_cfg_defaults(args):
@@ -226,7 +121,7 @@ def main():
 
     init_distributed_mode(args)
     if not torch.cuda.is_available():
-        raise RuntimeError("Extension-GAR training requires CUDA.")
+        raise RuntimeError("Latent Prior GAN training requires CUDA.")
     if not getattr(args, "distributed", False):
         args.gpu = 0
         args.rank = 0
@@ -240,14 +135,14 @@ def main():
         import sys
         sys.stdout = Logger(sysout_path, args.saver_name_pre)
         print("=" * 72)
-        print("Extension-GAR generation-GAN decoder post-training")
+        print("Latent Prior GAN decoder post-training")
         print("=" * 72)
         print("Objective: GAN only on x_fake = D_trainable(G_iMF(epsilon, y)); nt=1.0")
         print("No paired reconstruction, no LPIPS, no Gram loss.")
         for key, value in sorted(vars(args).items()):
             print(f"{key}: {value}")
         print("=" * 72)
-        print(f"Saved config: {save_args(args)}")
+        print(f"Saved config: {save_config(args)}")
         if args.use_wandb and WANDB_AVAILABLE:
             wandb.init(
                 project=args.wandb_project,
@@ -259,9 +154,9 @@ def main():
     if is_main_process():
         print(f"Train size: {train_size}")
 
-    decoder = GeneratedLatentDecoder(args).to(device)
-    set_requires_grad(decoder.tokenizer.vae, False)
-    set_requires_grad(decoder.tokenizer.vae.decoder, True)
+    decoder = LatentDecoder(args).to(device)
+    set_trainable(decoder.tokenizer.vae, False)
+    set_trainable(decoder.tokenizer.vae.decoder, True)
     decoder.tokenizer.vae.encoder.eval()
     decoder.tokenizer.vae.decoder.train()
 
@@ -271,7 +166,7 @@ def main():
     for p in diffusion.parameters():
         p.requires_grad = False
 
-    loss_module = GenerationGANLoss(args).to(device)
+    loss_module = LatentPriorGANLoss(args).to(device)
 
     if getattr(args, "distributed", False):
         decoder.tokenizer.vae.decoder = DDP(
@@ -295,7 +190,7 @@ def main():
     global_step = 0
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu")
-        load_ddp_decoder_state(decoder, checkpoint["decoder"])
+        load_decoder_state(decoder, checkpoint["decoder"])
         unwrap(loss_module).load_state_dict(checkpoint["loss"])
         optimizer_dec.load_state_dict(checkpoint["optimizer_dec"])
         optimizer_disc.load_state_dict(checkpoint["optimizer_disc"])
@@ -326,7 +221,7 @@ def main():
             fake_images = decoder(z_gen)
 
             optimizer_dec.zero_grad(set_to_none=True)
-            set_requires_grad(unwrap(loss_module).discriminator, False)
+            set_trainable(unwrap(loss_module).discriminator, False)
             g_loss, g_pack = unwrap(loss_module).generator_loss(fake_images)
             g_loss.backward()
             torch.nn.utils.clip_grad_norm_(decoder_params, 1.0)
@@ -334,7 +229,7 @@ def main():
 
             disc_active = epoch >= args.disc_start_epoch
             if disc_active:
-                set_requires_grad(unwrap(loss_module).discriminator, True)
+                set_trainable(unwrap(loss_module).discriminator, True)
                 with torch.no_grad():
                     z_gen_d = diffusion.generate(
                         batch_size=real_images.size(0),
@@ -382,7 +277,7 @@ def main():
                 )
                 save_checkpoint(
                     {
-                        "decoder": ddp_decoder_state_dict(decoder),
+                        "decoder": latent_decoder_state(decoder),
                         "model": tokenizer_prefixed_state(decoder),
                         "loss": unwrap(loss_module).state_dict(),
                         "optimizer_dec": optimizer_dec.state_dict(),
@@ -400,7 +295,7 @@ def main():
             dist.barrier()
 
     if is_main_process():
-        print("Extension-GAR training complete.")
+        print("Latent Prior GAN training complete.")
         if args.use_wandb and WANDB_AVAILABLE:
             wandb.finish()
 

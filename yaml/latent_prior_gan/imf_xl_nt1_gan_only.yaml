@@ -27,10 +27,10 @@ diff_aug_policy: color,translation,cutout_0.2
 diff_aug_prob: 0.5
 diff_aug_cr_policy: color,translation,cutout_0.5
 
-checkpoint_dir: /mnt/nfs/wenjie/IMF-GAP_V2/checkpoints/extension_gar/imf_xl_nt1_gan_only
-results_dir: /mnt/nfs/wenjie/IMF-GAP_V2/results/extension_gar/imf_xl_nt1_gan_only
-yaml_dir: /mnt/nfs/wenjie/IMF-GAP_V2/yaml/extension_gar
-saver_name_pre: extension_gar_iMF-XL-2_nt1_gan_only_nocfg
+checkpoint_dir: /mnt/nfs/wenjie/Latent-Prior-GAN/checkpoints/imf_xl_nt1_gan_only
+results_dir: /mnt/nfs/wenjie/Latent-Prior-GAN/results/imf_xl_nt1_gan_only
+yaml_dir: /mnt/nfs/wenjie/Latent-Prior-GAN/yaml
+saver_name_pre: latent_prior_gan_iMF-XL-2_nt1_gan_only_nocfg
 seed: 42
 use_wandb: false
-wandb_project: IMF-GAP-V2
+wandb_project: Latent-Prior-GAN

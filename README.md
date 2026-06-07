@@ -1,16 +1,26 @@
-# FD-Loss iMF Decoder Post-Training
+# Latent Prior GAN
 
-This repository contains clean training code for two decoder-side iMF/GAR
-post-training paths:
+This repository contains clean training code for decoder-side iMF experiments:
 
+- **Latent Prior GAN**: adapt the SD-VAE decoder on pure iMF-generated latents
+  with an adversarial image-space objective.
 - **GAR**: adapt the SD-VAE decoder on denoised encoder latents with
   reconstruction, perceptual, Gram, and adversarial losses.
-- **Extension-GAR**: adapt the SD-VAE decoder on pure generated iMF latents with
-  a GAN-only objective.
 
 ## Objectives
 
-GAR uses paired reconstruction:
+Latent Prior GAN is generation-side and unpaired:
+
+```text
+epsilon, y -> frozen iMF latent prior -> z_g
+z_g -> trainable SD-VAE decoder -> x_fake
+real ImageNet images vs. x_fake -> adversarial loss
+```
+
+It does **not** use paired reconstruction targets, VAE encoder latents,
+LPIPS/perceptual loss, Gram loss, or reconstruction MSE.
+
+GAR is kept as a baseline and uses paired reconstruction:
 
 ```text
 x -> frozen SD-VAE encoder -> z_e
@@ -20,23 +30,6 @@ z_d -> trainable SD-VAE decoder -> x_rec
 x_rec vs. x -> MSE + perceptual/LPIPS + Gram + GAN
 ```
 
-Extension-GAR is generation-side and unpaired:
-
-```text
-epsilon, y -> frozen iMF generator -> z_g
-z_g -> trainable SD-VAE decoder -> x_fake
-real ImageNet images vs. x_fake -> GAN loss
-```
-
-Extension-GAR does **not** use:
-
-- paired reconstruction targets;
-- VAE encoder latents `z_e`;
-- `denoise_from_encoder_latent`;
-- LPIPS/perceptual loss;
-- Gram loss;
-- reconstruction MSE.
-
 Both paths train only `tokenizer.vae.decoder`; the encoder, iMF generator, and
 the rest of the VAE remain frozen.
 
@@ -44,16 +37,13 @@ the rest of the VAE remain frozen.
 
 ```text
 post_train.py
-    Backward-compatible extension-GAR training entry point.
-
-post_train_extension_gar.py
-    Explicit extension-GAR training entry point.
+    Latent Prior GAN training entry point.
 
 post_train_gar.py
     Clean GAR training entry point.
 
-models/generation_gan_loss.py
-    GAN-only objective for extension-GAR.
+models/latent_prior_gan.py
+    Latent decoder and adversarial loss for Latent Prior GAN.
 
 models/gar_model.py
     GAR model wrapper: encoder latent -> iMF denoise -> decoder.
@@ -70,18 +60,23 @@ models/diffusion_pytorch.py
 data/dataloader.py
     ImageNet dataloader for real discriminator samples.
 
-metric/
-    Not included in this clean training package; evaluation scripts should live
-    in a separate eval package or be added as a clearly separated module.
+utils/config.py
+    YAML/JSON config loading and saving helpers.
+
+utils/checkpointing.py
+    Checkpoint state-dict cleanup and resume helpers.
+
+utils/training.py
+    Seed, TF32, trainable-parameter, and DDP unwrap helpers.
 
 yaml/gar/
     Clean GAR configs.
 
-yaml/extension_gar/
-    Clean extension-GAR configs.
+yaml/latent_prior_gan/
+    Latent Prior GAN configs.
 
-scripts/generated/sbatch_extension_gar_xl_nt1_gan_only.sh
-    Slurm template for extension-GAR.
+scripts/generated/sbatch_latent_prior_gan_xl_nt1_gan_only.sh
+    Slurm template for Latent Prior GAN.
 
 scripts/generated/sbatch_gar_b_fixednoise0p5_gan.sh
     Slurm template for GAR.
@@ -89,11 +84,11 @@ scripts/generated/sbatch_gar_b_fixednoise0p5_gan.sh
 
 ## Training
 
-Extension-GAR, iMF-XL, nt=1.0, no CFG, GAN-only:
+Latent Prior GAN, iMF-XL, nt=1.0, no CFG:
 
 ```bash
 cd /mnt/nfs/wenjie/IMF-GAP_V2
-bash scripts/generated/sbatch_extension_gar_xl_nt1_gan_only.sh
+bash scripts/generated/sbatch_latent_prior_gan_xl_nt1_gan_only.sh
 ```
 
 Direct command:
@@ -107,7 +102,7 @@ export PYTHONPATH=/mnt/nfs/wenjie/IMF-GAP_V2:$PYTHONPATH
   --standalone \
   --nproc_per_node=8 \
   post_train.py \
-  --config yaml/extension_gar/imf_xl_nt1_gan_only.yaml
+  --config yaml/latent_prior_gan/imf_xl_nt1_gan_only.yaml
 ```
 
 GAR, iMF-B, fixed noise eta_t=0.5:
@@ -133,7 +128,7 @@ V2 checkpoints are saved as:
 
 ```python
 {
-    "decoder": ...,        # GeneratedLatentDecoder state dict
+    "decoder": ...,        # LatentDecoder state dict
     "model": ...,          # tokenizer-prefixed state dict for eval compatibility
     "loss": ...,           # GAN loss/discriminator state
     "optimizer_dec": ...,
@@ -173,7 +168,7 @@ Outputs should stay under:
 
 ## Code Hygiene Rules
 
-- Keep GAR and extension-GAR in separate entry points and loss modules.
+- Keep Latent Prior GAN and GAR in separate entry points and loss modules.
 - Use `models/gar_loss.py` for reconstruction/perceptual/Gram GAR losses.
-- Use `models/generation_gan_loss.py` for extension-GAR GAN-only training.
+- Use `models/latent_prior_gan.py` for latent-prior adversarial training.
 - Do not commit generated images, NPZs, checkpoints, logs, or metric caches.

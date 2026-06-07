@@ -13,19 +13,14 @@ Loss: reconstruction MSE + perceptual/LPIPS + Gram + adversarial loss.
 """
 
 import argparse
-import json
 import os
-import random
 import time
 import warnings
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 warnings.filterwarnings("ignore")
 
-import numpy as np
 import torch
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
 from torch import distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -33,13 +28,11 @@ from data.dataloader import build_dataloader
 from models.diffusion_pytorch import DiffusionModelPyTorch
 from models.gar_loss import PostTrainingLoss
 from models.gar_model import TokenizerFlowComposition
-from utils.distributed import init_distributed_mode
+from utils.checkpointing import gar_model_state, load_gar_state
+from utils.config import load_config, save_config
+from utils.distributed import init_distributed_mode, is_main_process
+from utils.training import enable_tf32, seed_everything, set_trainable, unwrap
 from utils.util import Logger, LossManager, save_checkpoint
-
-try:
-    import yaml
-except ImportError:
-    yaml = None
 
 try:
     import wandb
@@ -47,30 +40,7 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
-
-def is_main_process():
-    return not dist.is_available() or not dist.is_initialized() or dist.get_rank() == 0
-
-
-def unwrap(module):
-    return module.module if hasattr(module, "module") else module
-
-
-def set_requires_grad(module, requires_grad):
-    for param in module.parameters():
-        param.requires_grad = requires_grad
-
-
-def load_config_file(path):
-    if not path:
-        return {}
-    if yaml is None:
-        raise RuntimeError("PyYAML is required when --config is used.")
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    if not isinstance(data, dict):
-        raise ValueError(f"Config must be a mapping: {path}")
-    return data
+enable_tf32()
 
 
 def parse_args():
@@ -118,7 +88,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
 
     parser.add_argument("--use_wandb", action="store_true", default=False)
-    parser.add_argument("--wandb_project", default="IMF-GAP-V2")
+    parser.add_argument("--wandb_project", default="Latent-Prior-GAN")
     parser.add_argument("--wandb_run_name", default="")
 
     parser.add_argument("--dist-backend", default="nccl")
@@ -128,7 +98,7 @@ def parse_args():
     if unknown:
         raise ValueError(f"Unknown arguments: {unknown}")
 
-    config = load_config_file(args.config)
+    config = load_config(args.config)
     if config:
         defaults = {k: v for k, v in config.items() if hasattr(args, k)}
         parser.set_defaults(**defaults)
@@ -156,49 +126,6 @@ def fill_cfg_defaults(args):
     args.omega = args.cfg_omega
     args.t_min = args.cfg_t_min
     args.t_max = args.cfg_t_max
-
-
-def seed_everything(seed):
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = True
-
-
-def save_args(args):
-    os.makedirs(args.yaml_dir, exist_ok=True)
-    path = os.path.join(args.yaml_dir, f"{args.saver_name_pre}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(vars(args), f, indent=2, sort_keys=True)
-    return path
-
-
-def clean_state_dict(module, wrapped_prefix, clean_prefix):
-    state = module.state_dict()
-    return {
-        (key.replace(wrapped_prefix, clean_prefix, 1) if key.startswith(wrapped_prefix) else key): value
-        for key, value in state.items()
-    }
-
-
-def gar_model_state_dict(model):
-    return clean_state_dict(model, "tokenizer.vae.decoder.module.", "tokenizer.vae.decoder.")
-
-
-def load_gar_model_state(model, state):
-    decoder_is_wrapped = hasattr(model.tokenizer.vae.decoder, "module")
-    remapped = {}
-    for key, value in state.items():
-        has_module_prefix = key.startswith("tokenizer.vae.decoder.module.")
-        has_decoder_prefix = key.startswith("tokenizer.vae.decoder.")
-        if decoder_is_wrapped and has_decoder_prefix and not has_module_prefix:
-            key = key.replace("tokenizer.vae.decoder.", "tokenizer.vae.decoder.module.", 1)
-        elif not decoder_is_wrapped and has_module_prefix:
-            key = key.replace("tokenizer.vae.decoder.module.", "tokenizer.vae.decoder.", 1)
-        remapped[key] = value
-    model.load_state_dict(remapped, strict=True)
 
 
 def main():
@@ -230,7 +157,7 @@ def main():
         for key, value in sorted(vars(args).items()):
             print(f"{key}: {value}")
         print("=" * 72)
-        print(f"Saved config: {save_args(args)}")
+        print(f"Saved config: {save_config(args)}")
         if args.use_wandb and WANDB_AVAILABLE:
             wandb.init(
                 project=args.wandb_project,
@@ -243,13 +170,13 @@ def main():
         print(f"Train size: {train_size}")
 
     model = TokenizerFlowComposition(args).to(device)
-    set_requires_grad(model.tokenizer.vae, False)
-    set_requires_grad(model.tokenizer.vae.decoder, True)
+    set_trainable(model.tokenizer.vae, False)
+    set_trainable(model.tokenizer.vae.decoder, True)
     model.tokenizer.vae.encoder.eval()
     model.tokenizer.vae.decoder.train()
     if model.diffusion_pytorch is not None:
         model.diffusion_pytorch.eval()
-        set_requires_grad(model.diffusion_pytorch, False)
+        set_trainable(model.diffusion_pytorch, False)
 
     loss_module = PostTrainingLoss(args).to(device)
     if getattr(args, "distributed", False):
@@ -276,7 +203,7 @@ def main():
     global_step = 0
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu")
-        load_gar_model_state(model, checkpoint["model"])
+        load_gar_state(model, checkpoint["model"])
         optimizer_dec.load_state_dict(checkpoint["optimizer_dec"])
         optimizer_disc.load_state_dict(checkpoint["optimizer_disc"])
         unwrap(loss_module).discriminator.load_state_dict(checkpoint["discriminator"])
@@ -298,7 +225,7 @@ def main():
             fake_images = model(real_images, labels=labels)
 
             optimizer_dec.zero_grad(set_to_none=True)
-            set_requires_grad(unwrap(loss_module).discriminator, False)
+            set_trainable(unwrap(loss_module).discriminator, False)
             g_loss, g_pack = unwrap(loss_module)(
                 real_images,
                 fake_images,
@@ -312,7 +239,7 @@ def main():
 
             disc_active = epoch >= args.disc_start_epoch
             if disc_active:
-                set_requires_grad(unwrap(loss_module).discriminator, True)
+                set_trainable(unwrap(loss_module).discriminator, True)
                 optimizer_disc.zero_grad(set_to_none=True)
                 d_loss, d_pack = loss_module(
                     real_images,
@@ -352,7 +279,7 @@ def main():
                 )
                 save_checkpoint(
                     {
-                        "model": gar_model_state_dict(model),
+                        "model": gar_model_state(model),
                         "discriminator": unwrap(loss_module).discriminator.state_dict(),
                         "optimizer_dec": optimizer_dec.state_dict(),
                         "optimizer_disc": optimizer_disc.state_dict(),
