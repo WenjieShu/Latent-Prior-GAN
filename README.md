@@ -42,6 +42,9 @@ post_train.py
 post_train_gar.py
     Clean GAR training entry point.
 
+models/latent_prior_gan_model.py
+    Frozen iMF prior, trainable SD-VAE decoder, and DINO GAN objective.
+
 models/dino_gan_loss.py
     GAN loss with a DINO-based discriminator.
 

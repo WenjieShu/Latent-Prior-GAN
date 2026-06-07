@@ -13,13 +13,12 @@ from torch import distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from data.dataloader import build_dataloader
-from models.dino_gan_loss import DinoGANLoss
 from models.diffusion_pytorch import DiffusionModelPyTorch
-from models.tokenizer import Tokenizer
+from models.latent_prior_gan_model import LatentPriorGAN
 from utils.checkpointing import load_tokenizer_state, tokenizer_prefixed_state, tokenizer_state
 from utils.config import load_config, save_config
 from utils.distributed import init_distributed_mode, is_main_process
-from utils.training import enable_tf32, seed_everything, set_trainable, unwrap
+from utils.training import enable_tf32, seed_everything, unwrap
 from utils.util import Logger, LossManager, save_checkpoint
 
 try:
@@ -155,50 +154,37 @@ def main():
     if is_main_process():
         print(f"Train size: {train_size}")
 
-    tokenizer = Tokenizer(args).to(device)
-    set_trainable(tokenizer.vae, False)
-    set_trainable(tokenizer.vae.decoder, True)
-    tokenizer.vae.encoder.eval()
-    tokenizer.vae.decoder.train()
+    start_epoch = 1
+    global_step = 0
+    checkpoint = None
 
-    diffusion = DiffusionModelPyTorch(args).to(device)
-    diffusion.load()
-    diffusion.eval()
-    for p in diffusion.parameters():
-        p.requires_grad = False
-
-    loss_module = DinoGANLoss(args).to(device)
+    model = LatentPriorGAN(args).to(device)
+    model.load_prior()
+    if args.resume:
+        checkpoint = torch.load(args.resume, map_location="cpu")
+        load_tokenizer_state(model.tokenizer, checkpoint["decoder"])
+        model.gan_loss.load_state_dict(checkpoint["loss"])
+        start_epoch = int(checkpoint.get("epoch", 0)) + 1
+        global_step = int(checkpoint.get("global_step", 0))
+        if is_main_process():
+            print(f"Resumed from {args.resume} at epoch {start_epoch}")
 
     if getattr(args, "distributed", False):
-        tokenizer.vae.decoder = DDP(
-            tokenizer.vae.decoder,
-            device_ids=[args.gpu],
-            find_unused_parameters=False,
-        )
-        loss_module = DDP(loss_module, device_ids=[args.gpu], find_unused_parameters=False)
-    loss_module.train()
+        model = DDP(model, device_ids=[args.gpu], find_unused_parameters=True)
+    model.train()
 
-    decoder_params = list(unwrap(tokenizer.vae.decoder).parameters())
-    disc_params = list(unwrap(loss_module).discriminator.parameters())
+    base_model = unwrap(model)
+    decoder_params = base_model.decoder_parameters()
+    disc_params = base_model.discriminator_parameters()
     optimizer_dec = torch.optim.AdamW(
         decoder_params, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay
     )
     optimizer_disc = torch.optim.AdamW(
         disc_params, lr=args.disc_lr, betas=(0.9, 0.95), weight_decay=args.weight_decay
     )
-
-    start_epoch = 1
-    global_step = 0
-    if args.resume:
-        checkpoint = torch.load(args.resume, map_location="cpu")
-        load_tokenizer_state(tokenizer, checkpoint["decoder"])
-        unwrap(loss_module).load_state_dict(checkpoint["loss"])
+    if checkpoint is not None:
         optimizer_dec.load_state_dict(checkpoint["optimizer_dec"])
         optimizer_disc.load_state_dict(checkpoint["optimizer_disc"])
-        start_epoch = int(checkpoint.get("epoch", 0)) + 1
-        global_step = int(checkpoint.get("global_step", 0))
-        if is_main_process():
-            print(f"Resumed from {args.resume} at epoch {start_epoch}")
 
     train_meter = LossManager()
     for epoch in range(start_epoch, args.epochs + 1):
@@ -210,41 +196,20 @@ def main():
             real_images = real_images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
-            with torch.no_grad():
-                z_gen = diffusion.generate(
-                    batch_size=real_images.size(0),
-                    labels=labels,
-                    num_steps=args.num_steps,
-                    use_cfg=args.use_cfg,
-                    device=device,
-                )
-
-            fake_images = tokenizer.decode(z_gen).clamp(-1, 1)
-
             optimizer_dec.zero_grad(set_to_none=True)
-            set_trainable(unwrap(loss_module).discriminator, False)
-            g_loss, g_pack = unwrap(loss_module).generator_loss(fake_images)
+            optimizer_disc.zero_grad(set_to_none=True)
+            g_loss, g_pack = model(mode="generator", labels=labels)
             g_loss.backward()
             torch.nn.utils.clip_grad_norm_(decoder_params, 1.0)
             optimizer_dec.step()
 
             disc_active = epoch >= args.disc_start_epoch
             if disc_active:
-                set_trainable(unwrap(loss_module).discriminator, True)
-                with torch.no_grad():
-                    z_gen_d = diffusion.generate(
-                        batch_size=real_images.size(0),
-                        labels=labels,
-                        num_steps=args.num_steps,
-                        use_cfg=args.use_cfg,
-                        device=device,
-                    )
-                    fake_images_d = tokenizer.decode(z_gen_d).clamp(-1, 1)
                 optimizer_disc.zero_grad(set_to_none=True)
-                d_loss, d_pack = loss_module(
+                d_loss, d_pack = model(
                     mode="discriminator",
                     real_images=real_images,
-                    fake_images=fake_images_d,
+                    labels=labels,
                 )
                 d_loss.backward()
                 torch.nn.utils.clip_grad_norm_(disc_params, 1.0)
@@ -278,9 +243,9 @@ def main():
                 )
                 save_checkpoint(
                     {
-                        "decoder": tokenizer_state(tokenizer),
-                        "model": tokenizer_prefixed_state(tokenizer),
-                        "loss": unwrap(loss_module).state_dict(),
+                        "decoder": tokenizer_state(base_model.tokenizer),
+                        "model": tokenizer_prefixed_state(base_model.tokenizer),
+                        "loss": base_model.gan_loss.state_dict(),
                         "optimizer_dec": optimizer_dec.state_dict(),
                         "optimizer_disc": optimizer_disc.state_dict(),
                         "epoch": epoch,
