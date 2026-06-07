@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument("--save_interval", type=int, default=1)
     parser.add_argument("--resume", default="", type=str)
 
-    parser.add_argument("--disc_weight", type=float, default=0.7)
+    parser.add_argument("--disc_weight", type=float, default=0.5)
     parser.add_argument("--lecam_loss_weight", type=float, default=0.001)
     parser.add_argument("--disc_cr_loss_weight", type=float, default=4.0)
 

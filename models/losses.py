@@ -46,22 +46,14 @@ class PostTrainingLoss(nn.Module):
         self.lecam_ema = LeCAM_EMA()
         self.discriminator = None if getattr(args, "disable_gan", False) else DinoDiscriminator()
 
-    def calculate_adaptive_weight(self, nll_loss, g_loss, last_layer):
-        nll_grads = torch.autograd.grad(nll_loss, last_layer, retain_graph=True)[0]
-        g_grads = torch.autograd.grad(g_loss, last_layer, retain_graph=True)[0]
-
-        d_weight = torch.norm(nll_grads) / (torch.norm(g_grads) + 1e-4)
-        d_weight = torch.clamp(d_weight, 0.0, 1e4).detach()
-        return d_weight.detach()
-
     def forward(self, inputs, generations, optimizer_idx, last_layer=None):
         # generator update
         if optimizer_idx == 0:
             generation_aug = DiffAugment(generations.contiguous(), policy='color,translation,cutout_0.2', prob=0.5)
             logits_fake = self.discriminator(generation_aug.contiguous())
             g_loss = hinge_gen_loss(logits_fake)
-            gen_loss = self.args.disc_weight * g_loss 
-            loss_pack = Pack(gen_loss=gen_loss, g_loss = g_loss, disc_weight=disc_weight)
+            gen_loss = g_loss 
+            loss_pack = Pack(gen_loss=gen_loss, g_loss = g_loss)
             return gen_loss, loss_pack
 
         # discriminator update
@@ -72,7 +64,7 @@ class PostTrainingLoss(nn.Module):
             self.lecam_ema.update(logits_real, logits_fake)
             lecam_loss = lecam_reg(logits_real, logits_fake, self.lecam_ema)
             adversarial_loss = hinge_d_loss(logits_real, logits_fake)
-            d_loss = 0.5 * self.args.disc_weight * (lecam_loss * self.args.lecam_loss_weight + adversarial_loss)
+            d_loss = self.args.disc_weight * (lecam_loss * self.args.lecam_loss_weight + adversarial_loss)
 
             logits_real_s = self.discriminator(DiffAugment(inputs.contiguous().detach(), policy='color,translation,cutout_0.5', prob=1.0))
             logits_fake_s = self.discriminator(DiffAugment(generations.contiguous().detach(), policy='color,translation,cutout_0.5', prob=1.0))
