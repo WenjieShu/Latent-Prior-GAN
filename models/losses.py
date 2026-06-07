@@ -1,5 +1,3 @@
-"""Losses for Latent Prior GAN."""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,108 +7,73 @@ from utils.diff_aug import DiffAugment
 from utils.util import Pack
 
 
-def hinge_discriminator_loss(logits_real, logits_fake):
-    loss_real = torch.mean(F.relu(1.0 - logits_real))
-    loss_fake = torch.mean(F.relu(1.0 + logits_fake))
-    return 0.5 * (loss_real + loss_fake)
+def hinge_d_loss(logits_real, logits_fake):
+    loss_real = torch.mean(F.relu(1. - logits_real))
+    loss_fake = torch.mean(F.relu(1. + logits_fake))
+    d_loss = 0.5 * (loss_real + loss_fake)
+    return d_loss
+
+def hinge_gen_loss(logit_fake):
+    return -torch.mean(logit_fake)
 
 
-def hinge_generator_loss(logits_fake):
-    return -torch.mean(logits_fake)
+def adopt_weight(weight, cur_epoch, threshold=0, value=0.):
+    if cur_epoch < threshold:
+        weight = value
+    return weight
 
-
-class LeCAMEMA:
-    def __init__(self, init=0.0, decay=0.999):
+class LeCAM_EMA(object):
+    def __init__(self, init=0., decay=0.999):
         self.logits_real_ema = init
         self.logits_fake_ema = init
         self.decay = decay
 
     def update(self, logits_real, logits_fake):
-        self.logits_real_ema = (
-            self.logits_real_ema * self.decay
-            + torch.mean(logits_real).item() * (1.0 - self.decay)
-        )
-        self.logits_fake_ema = (
-            self.logits_fake_ema * self.decay
-            + torch.mean(logits_fake).item() * (1.0 - self.decay)
-        )
+        self.logits_real_ema = self.logits_real_ema * self.decay + torch.mean(logits_real).item() * (1 - self.decay)
+        self.logits_fake_ema = self.logits_fake_ema * self.decay + torch.mean(logits_fake).item() * (1 - self.decay)
+
+def lecam_reg(real_pred, fake_pred, lecam_ema):
+    reg = torch.mean(F.relu(real_pred - lecam_ema.logits_fake_ema).pow(2)) + \
+          torch.mean(F.relu(lecam_ema.logits_real_ema - fake_pred).pow(2))
+    return reg
 
 
-def lecam_regularization(logits_real, logits_fake, ema):
-    real_reg = F.relu(logits_real - ema.logits_fake_ema).pow(2).mean()
-    fake_reg = F.relu(ema.logits_real_ema - logits_fake).pow(2).mean()
-    return real_reg + fake_reg
-
-
-class DinoGANLoss(nn.Module):
-    """Adversarial loss with a DINO-based discriminator."""
-
+class PostTrainingLoss(nn.Module):
     def __init__(self, args):
-        super().__init__()
+        super(PostTrainingLoss, self).__init__()
         self.args = args
-        self.lecam_ema = LeCAMEMA()
-        self.discriminator = DinoDiscriminator()
+        self.disc_adaptive_weight = True
+        self.lecam_ema = LeCAM_EMA()
+        self.discriminator = None if getattr(args, "disable_gan", False) else DinoDiscriminator()
 
-    def generator_loss(self, fake_images):
-        fake_aug = DiffAugment(
-            fake_images.contiguous(),
-            policy=self.args.diff_aug_policy,
-            prob=self.args.diff_aug_prob,
-        )
-        logits_fake = self.discriminator(fake_aug)
-        g_loss = hinge_generator_loss(logits_fake) * self.args.disc_weight
-        return g_loss, Pack(
-            gen_loss=g_loss,
-            g_loss=g_loss.detach(),
-            logits_fake=logits_fake.detach().mean(),
-        )
+    def forward(self, inputs, generations, optimizer_idx, last_layer=None):
+        # generator update
+        if optimizer_idx == 0:
+            generation_aug = DiffAugment(generations.contiguous(), policy='color,translation,cutout_0.2', prob=0.5)
+            logits_fake = self.discriminator(generation_aug.contiguous())
+            g_loss = hinge_gen_loss(logits_fake)
+            gen_loss = g_loss 
+            loss_pack = Pack(gen_loss=gen_loss, g_loss = g_loss)
+            return gen_loss, loss_pack
 
-    def discriminator_loss(self, real_images, fake_images):
-        real_aug = DiffAugment(
-            real_images.contiguous().detach(),
-            policy=self.args.diff_aug_policy,
-            prob=self.args.diff_aug_prob,
-        )
-        fake_aug = DiffAugment(
-            fake_images.contiguous().detach(),
-            policy=self.args.diff_aug_policy,
-            prob=self.args.diff_aug_prob,
-        )
-        logits_real = self.discriminator(real_aug)
-        logits_fake = self.discriminator(fake_aug)
+        # discriminator update
+        if optimizer_idx == 1:
+            logits_real = self.discriminator(DiffAugment(inputs.contiguous().detach(), policy='color,translation,cutout_0.2', prob=0.5))
+            logits_fake = self.discriminator(DiffAugment(generations.contiguous().detach(), policy='color,translation,cutout_0.2', prob=0.5))
 
-        self.lecam_ema.update(logits_real, logits_fake)
-        adv_loss = hinge_discriminator_loss(logits_real, logits_fake)
-        lecam_loss = lecam_regularization(logits_real, logits_fake, self.lecam_ema)
-        d_loss = self.args.disc_weight * (
-            adv_loss + self.args.lecam_loss_weight * lecam_loss
-        )
+            self.lecam_ema.update(logits_real, logits_fake)
+            lecam_loss = lecam_reg(logits_real, logits_fake, self.lecam_ema)
+            adversarial_loss = hinge_d_loss(logits_real, logits_fake)
+            d_loss = self.args.disc_weight * (lecam_loss * self.args.lecam_loss_weight + adversarial_loss)
 
-        cr_loss = torch.zeros((), device=real_images.device)
-        if self.args.disc_cr_loss_weight > 0:
-            real_aug_strong = DiffAugment(
-                real_images.contiguous().detach(),
-                policy=self.args.diff_aug_cr_policy,
-                prob=1.0,
-            )
-            fake_aug_strong = DiffAugment(
-                fake_images.contiguous().detach(),
-                policy=self.args.diff_aug_cr_policy,
-                prob=1.0,
-            )
-            logits_real_strong = self.discriminator(real_aug_strong)
-            logits_fake_strong = self.discriminator(fake_aug_strong)
-            cr_loss = F.mse_loss(
-                torch.cat([logits_real, logits_fake], dim=0),
-                torch.cat([logits_real_strong, logits_fake_strong], dim=0),
-            )
-            d_loss = d_loss + self.args.disc_cr_loss_weight * cr_loss
+            logits_real_s = self.discriminator(DiffAugment(inputs.contiguous().detach(), policy='color,translation,cutout_0.5', prob=1.0))
+            logits_fake_s = self.discriminator(DiffAugment(generations.contiguous().detach(), policy='color,translation,cutout_0.5', prob=1.0))
+            disc_cr_loss_weight = self.args.disc_cr_loss_weight 
+            d_cr = F.mse_loss(torch.cat([logits_real, logits_fake], dim=0), torch.cat([logits_real_s, logits_fake_s])) * disc_cr_loss_weight
+            d_loss += d_cr
 
-        return d_loss, Pack(
-            d_loss=d_loss,
-            d_adv_loss=adv_loss.detach(),
-            d_lecam_loss=lecam_loss.detach(),
-            d_cr_loss=cr_loss.detach(),
-            logits_real=logits_real.detach().mean(),
-            logits_fake=logits_fake.detach().mean(),
-        )
+            logits_real = logits_real.detach().mean()
+            logits_fake = logits_fake.detach().mean()
+            loss_pack = Pack(d_loss=d_loss, logits_real=logits_real, logits_fake=logits_fake)
+
+            return d_loss, loss_pack
