@@ -42,8 +42,8 @@ post_train.py
 post_train_gar.py
     Clean GAR training entry point.
 
-models/latent_prior_gan.py
-    Latent decoder and adversarial loss for Latent Prior GAN.
+models/dino_gan_loss.py
+    GAN loss with a DINO-based discriminator.
 
 models/gar_model.py
     GAR model wrapper: encoder latent -> iMF denoise -> decoder.
@@ -128,7 +128,7 @@ V2 checkpoints are saved as:
 
 ```python
 {
-    "decoder": ...,        # LatentDecoder state dict
+    "decoder": ...,        # tokenizer state dict with trained vae.decoder
     "model": ...,          # tokenizer-prefixed state dict for eval compatibility
     "loss": ...,           # GAN loss/discriminator state
     "optimizer_dec": ...,
@@ -170,5 +170,5 @@ Outputs should stay under:
 
 - Keep Latent Prior GAN and GAR in separate entry points and loss modules.
 - Use `models/gar_loss.py` for reconstruction/perceptual/Gram GAR losses.
-- Use `models/latent_prior_gan.py` for latent-prior adversarial training.
+- Use `models/dino_gan_loss.py` for the DINO-discriminator GAN objective.
 - Do not commit generated images, NPZs, checkpoints, logs, or metric caches.

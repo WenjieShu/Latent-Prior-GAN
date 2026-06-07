@@ -21,6 +21,6 @@ def get_gar_loss():
     return PostTrainingLoss
 
 
-def get_latent_prior_gan():
-    from models.latent_prior_gan import LatentDecoder, LatentPriorGANLoss
-    return LatentDecoder, LatentPriorGANLoss
+def get_dino_gan_loss():
+    from models.dino_gan_loss import DinoGANLoss
+    return DinoGANLoss

@@ -13,9 +13,10 @@ from torch import distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from data.dataloader import build_dataloader
+from models.dino_gan_loss import DinoGANLoss
 from models.diffusion_pytorch import DiffusionModelPyTorch
-from models.latent_prior_gan import LatentDecoder, LatentPriorGANLoss
-from utils.checkpointing import latent_decoder_state, load_decoder_state, tokenizer_prefixed_state
+from models.tokenizer import Tokenizer
+from utils.checkpointing import load_tokenizer_state, tokenizer_prefixed_state, tokenizer_state
 from utils.config import load_config, save_config
 from utils.distributed import init_distributed_mode, is_main_process
 from utils.training import enable_tf32, seed_everything, set_trainable, unwrap
@@ -154,11 +155,11 @@ def main():
     if is_main_process():
         print(f"Train size: {train_size}")
 
-    decoder = LatentDecoder(args).to(device)
-    set_trainable(decoder.tokenizer.vae, False)
-    set_trainable(decoder.tokenizer.vae.decoder, True)
-    decoder.tokenizer.vae.encoder.eval()
-    decoder.tokenizer.vae.decoder.train()
+    tokenizer = Tokenizer(args).to(device)
+    set_trainable(tokenizer.vae, False)
+    set_trainable(tokenizer.vae.decoder, True)
+    tokenizer.vae.encoder.eval()
+    tokenizer.vae.decoder.train()
 
     diffusion = DiffusionModelPyTorch(args).to(device)
     diffusion.load()
@@ -166,18 +167,18 @@ def main():
     for p in diffusion.parameters():
         p.requires_grad = False
 
-    loss_module = LatentPriorGANLoss(args).to(device)
+    loss_module = DinoGANLoss(args).to(device)
 
     if getattr(args, "distributed", False):
-        decoder.tokenizer.vae.decoder = DDP(
-            decoder.tokenizer.vae.decoder,
+        tokenizer.vae.decoder = DDP(
+            tokenizer.vae.decoder,
             device_ids=[args.gpu],
             find_unused_parameters=False,
         )
         loss_module = DDP(loss_module, device_ids=[args.gpu], find_unused_parameters=False)
     loss_module.train()
 
-    decoder_params = list(unwrap(decoder.tokenizer.vae.decoder).parameters())
+    decoder_params = list(unwrap(tokenizer.vae.decoder).parameters())
     disc_params = list(unwrap(loss_module).discriminator.parameters())
     optimizer_dec = torch.optim.AdamW(
         decoder_params, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay
@@ -190,7 +191,7 @@ def main():
     global_step = 0
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu")
-        load_decoder_state(decoder, checkpoint["decoder"])
+        load_tokenizer_state(tokenizer, checkpoint["decoder"])
         unwrap(loss_module).load_state_dict(checkpoint["loss"])
         optimizer_dec.load_state_dict(checkpoint["optimizer_dec"])
         optimizer_disc.load_state_dict(checkpoint["optimizer_disc"])
@@ -218,7 +219,7 @@ def main():
                     device=device,
                 )
 
-            fake_images = decoder(z_gen)
+            fake_images = tokenizer.decode(z_gen).clamp(-1, 1)
 
             optimizer_dec.zero_grad(set_to_none=True)
             set_trainable(unwrap(loss_module).discriminator, False)
@@ -238,7 +239,7 @@ def main():
                         use_cfg=args.use_cfg,
                         device=device,
                     )
-                    fake_images_d = decoder(z_gen_d)
+                    fake_images_d = tokenizer.decode(z_gen_d).clamp(-1, 1)
                 optimizer_disc.zero_grad(set_to_none=True)
                 d_loss, d_pack = loss_module(
                     mode="discriminator",
@@ -277,8 +278,8 @@ def main():
                 )
                 save_checkpoint(
                     {
-                        "decoder": latent_decoder_state(decoder),
-                        "model": tokenizer_prefixed_state(decoder),
+                        "decoder": tokenizer_state(tokenizer),
+                        "model": tokenizer_prefixed_state(tokenizer),
                         "loss": unwrap(loss_module).state_dict(),
                         "optimizer_dec": optimizer_dec.state_dict(),
                         "optimizer_disc": optimizer_disc.state_dict(),

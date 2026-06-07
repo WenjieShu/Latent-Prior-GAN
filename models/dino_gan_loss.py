@@ -1,11 +1,10 @@
-"""Latent Prior GAN components."""
+"""DINO-discriminator GAN loss."""
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from models.discriminators import DinoDiscriminator
-from models.tokenizer import Tokenizer
 from utils.diff_aug import DiffAugment
 from utils.util import Pack
 
@@ -43,37 +42,14 @@ def lecam_regularization(logits_real, logits_fake, ema):
     return real_reg + fake_reg
 
 
-class LatentDecoder(nn.Module):
-    """SD-VAE decoder trained on latents sampled from the iMF prior."""
-
-    def __init__(self, args):
-        super().__init__()
-        self.tokenizer = Tokenizer(args)
-        self.tokenizer.train_decoder()
-
-    def forward(self, latents):
-        return self.tokenizer.decode(latents).clamp(-1, 1)
-
-
-class LatentPriorGANLoss(nn.Module):
-    """Adversarial image-space loss for latent-prior decoder adaptation."""
+class DinoGANLoss(nn.Module):
+    """Adversarial loss with a DINO-based discriminator."""
 
     def __init__(self, args):
         super().__init__()
         self.args = args
         self.lecam_ema = LeCAMEMA()
         self.discriminator = DinoDiscriminator()
-
-    def forward(self, mode, real_images=None, fake_images=None):
-        if mode == "generator":
-            if fake_images is None:
-                raise ValueError("fake_images is required for generator loss")
-            return self.generator_loss(fake_images)
-        if mode == "discriminator":
-            if real_images is None or fake_images is None:
-                raise ValueError("real_images and fake_images are required for discriminator loss")
-            return self.discriminator_loss(real_images, fake_images)
-        raise ValueError(f"Unknown Latent Prior GAN loss mode: {mode}")
 
     def generator_loss(self, fake_images):
         fake_aug = DiffAugment(
