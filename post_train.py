@@ -29,7 +29,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from data.dataloader import build_dataloader
 from models.diffusion_pytorch import DiffusionModelPyTorch
-from models.generation_gan_loss import GenerationGANLoss
+from models.gan_loss import GenerationGANLoss
 from models.tokenizer import Tokenizer
 from utils.distributed import init_distributed_mode
 from utils.util import Logger, LossManager, save_checkpoint
@@ -94,7 +94,6 @@ def parse_args():
     parser.add_argument("--resume", default="", type=str)
 
     parser.add_argument("--disc_weight", type=float, default=0.7)
-    parser.add_argument("--disc_start_epoch", type=int, default=0)
     parser.add_argument("--lecam_loss_weight", type=float, default=0.001)
     parser.add_argument("--disc_cr_loss_weight", type=float, default=4.0)
     parser.add_argument("--diff_aug_policy", default="color,translation,cutout_0.2")
