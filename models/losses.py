@@ -1,4 +1,4 @@
-"""DINO-discriminator GAN loss."""
+"""Losses for Latent Prior GAN."""
 
 import torch
 import torch.nn as nn

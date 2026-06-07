@@ -22,10 +22,10 @@ def get_gar_loss():
 
 
 def get_dino_gan_loss():
-    from models.dino_gan_loss import DinoGANLoss
+    from models.losses import DinoGANLoss
     return DinoGANLoss
 
 
 def get_latent_prior_gan_model():
-    from models.latent_prior_gan_model import LatentPriorGAN
+    from models.model import LatentPriorGAN
     return LatentPriorGAN

@@ -42,10 +42,10 @@ post_train.py
 post_train_gar.py
     Clean GAR training entry point.
 
-models/latent_prior_gan_model.py
+models/model.py
     Frozen iMF prior, trainable SD-VAE decoder, and DINO GAN objective.
 
-models/dino_gan_loss.py
+models/losses.py
     GAN loss with a DINO-based discriminator.
 
 models/gar_model.py
@@ -173,5 +173,5 @@ Outputs should stay under:
 
 - Keep Latent Prior GAN and GAR in separate entry points and loss modules.
 - Use `models/gar_loss.py` for reconstruction/perceptual/Gram GAR losses.
-- Use `models/dino_gan_loss.py` for the DINO-discriminator GAN objective.
+- Use `models/losses.py` for the DINO-discriminator GAN objective.
 - Do not commit generated images, NPZs, checkpoints, logs, or metric caches.

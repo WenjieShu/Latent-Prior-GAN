@@ -3,13 +3,13 @@
 import torch
 import torch.nn as nn
 
-from models.dino_gan_loss import DinoGANLoss
 from models.diffusion_pytorch import DiffusionModelPyTorch
+from models.losses import DinoGANLoss
 from models.tokenizer import Tokenizer
 
 
 class LatentPriorGAN(nn.Module):
-    """Frozen iMF prior plus trainable SD-VAE decoder and DINO discriminator."""
+    """Frozen iMF prior, trainable SD-VAE decoder, and DINO discriminator."""
 
     def __init__(self, args):
         super().__init__()
@@ -46,9 +46,9 @@ class LatentPriorGAN(nn.Module):
     def discriminator_parameters(self):
         return list(self.gan_loss.discriminator.parameters())
 
-    def set_discriminator_trainable(self, trainable):
+    def set_discriminator_requires_grad(self, requires_grad):
         for param in self.gan_loss.discriminator.parameters():
-            param.requires_grad = trainable
+            param.requires_grad = requires_grad
 
     @torch.no_grad()
     def sample_latents(self, labels):
@@ -68,18 +68,14 @@ class LatentPriorGAN(nn.Module):
             raise ValueError("labels are required")
 
         if mode == "generator":
-            self.set_discriminator_trainable(False)
-            latents = self.sample_latents(labels)
-            fake_images = self.decode(latents)
+            fake_images = self.decode(self.sample_latents(labels))
             return self.gan_loss.generator_loss(fake_images)
 
         if mode == "discriminator":
             if real_images is None:
                 raise ValueError("real_images are required")
-            self.set_discriminator_trainable(True)
             with torch.no_grad():
-                latents = self.sample_latents(labels)
-                fake_images = self.decode(latents)
+                fake_images = self.decode(self.sample_latents(labels))
             return self.gan_loss.discriminator_loss(real_images, fake_images)
 
         raise ValueError(f"Unknown LatentPriorGAN mode: {mode}")
