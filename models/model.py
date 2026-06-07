@@ -4,20 +4,19 @@ import torch
 import torch.nn as nn
 
 from models.diffusion_pytorch import DiffusionModelPyTorch
-from models.losses import DinoGANLoss
 from models.tokenizer import Tokenizer
 
 
 class LatentPriorGAN(nn.Module):
-    """Frozen iMF prior, trainable SD-VAE decoder, and DINO discriminator."""
+    """Frozen iMF prior, trainable SD-VAE decoder."""
 
     def __init__(self, args):
         super().__init__()
         self.args = args
         self.tokenizer = Tokenizer(args)
         self.diffusion = DiffusionModelPyTorch(args)
-        self.gan_loss = DinoGANLoss(args)
         self.freeze_prior_and_encoder()
+        self.load_prior()
 
     def load_prior(self):
         self.diffusion.load()
@@ -28,28 +27,25 @@ class LatentPriorGAN(nn.Module):
             param.requires_grad = False
         for param in self.tokenizer.vae.decoder.parameters():
             param.requires_grad = True
-        for param in self.diffusion.parameters():
-            param.requires_grad = False
+        if self.args.train_generator == False:
+            for param in self.diffusion.parameters():
+                param.requires_grad = False
+        else:
+            for param in self.diffusion.parameters():
+                param.requires_grad = True
+
         self.tokenizer.vae.encoder.eval()
         self.tokenizer.vae.decoder.train()
-        self.diffusion.eval()
-
-    def train(self, mode=True):
-        super().train(mode)
-        self.tokenizer.vae.encoder.eval()
-        self.diffusion.eval()
-        return self
+        if self.args.train_generator == False:
+            self.diffusion.eval()
+        else:
+            self.diffusion.train()
 
     def decoder_parameters(self):
         return list(self.tokenizer.vae.decoder.parameters())
 
-    def discriminator_parameters(self):
-        return list(self.gan_loss.discriminator.parameters())
-
-    def set_discriminator_requires_grad(self, requires_grad):
-        for param in self.gan_loss.discriminator.parameters():
-            param.requires_grad = requires_grad
-
+    ### please refer to FD-loss paper, how to pass GAN loss gradient to generator 
+    ### current version: generator cannot be updated, we must find one version that generator can be updated  
     @torch.no_grad()
     def sample_latents(self, labels):
         return self.diffusion.generate(
@@ -57,25 +53,13 @@ class LatentPriorGAN(nn.Module):
             labels=labels,
             num_steps=self.args.num_steps,
             use_cfg=self.args.use_cfg,
-            device=labels.device,
+            device=labels.device,s
         )
 
     def decode(self, latents):
         return self.tokenizer.decode(latents).clamp(-1, 1)
 
-    def forward(self, mode, real_images=None, labels=None):
-        if labels is None:
-            raise ValueError("labels are required")
-
-        if mode == "generator":
-            fake_images = self.decode(self.sample_latents(labels))
-            return self.gan_loss.generator_loss(fake_images)
-
-        if mode == "discriminator":
-            if real_images is None:
-                raise ValueError("real_images are required")
-            with torch.no_grad():
-                fake_images = self.decode(self.sample_latents(labels))
-            return self.gan_loss.discriminator_loss(real_images, fake_images)
-
-        raise ValueError(f"Unknown LatentPriorGAN mode: {mode}")
+    def forward(self, labels=None):
+        assert labels != None
+        x_gen  = self.decode(self.sample_latents(labels))
+        return x_gen

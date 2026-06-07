@@ -23,11 +23,8 @@ MODEL_CFG = {
 
 
 def parse_arg():
-    parser = argparse.ArgumentParser(
-        description="Latent Prior GAN: decoder adaptation on generated iMF latents."
-    )
+    parser = argparse.ArgumentParser(description="Latent Prior GAN on iMF generative model.")
     parser.add_argument("--config", default="", type=str, help="optional YAML config")
-
     parser.add_argument("--dataset_dir", default="/mnt/nfs/wenjie/dataset/imagenet_idx")
     parser.add_argument("--dataset_name", default="ImageNet", choices=["ImageNet"])
     parser.add_argument("--batch_size", type=int, default=32)
@@ -43,34 +40,28 @@ def parse_arg():
     parser.add_argument("--cfg_omega", type=float, default=None)
     parser.add_argument("--cfg_t_min", type=float, default=None)
     parser.add_argument("--cfg_t_max", type=float, default=None)
+    parser.add_argument("--train_generator", action="store_true", default=False)
 
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--disc_lr", type=float, default=1e-5)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
-    parser.add_argument("--max_train_steps", type=int, default=0)
     parser.add_argument("--log_interval", type=int, default=50)
     parser.add_argument("--save_interval", type=int, default=1)
     parser.add_argument("--resume", default="", type=str)
 
     parser.add_argument("--disc_weight", type=float, default=0.7)
-    parser.add_argument("--disc_start_epoch", type=int, default=0)
     parser.add_argument("--lecam_loss_weight", type=float, default=0.001)
     parser.add_argument("--disc_cr_loss_weight", type=float, default=4.0)
-    parser.add_argument("--diff_aug_policy", default="color,translation,cutout_0.2")
-    parser.add_argument("--diff_aug_prob", type=float, default=0.5)
-    parser.add_argument("--diff_aug_cr_policy", default="color,translation,cutout_0.5")
 
     parser.add_argument("--checkpoint_dir", default="/mnt/nfs/wenjie/Latent-Prior-GAN/checkpoints")
     parser.add_argument("--results_dir", default="/mnt/nfs/wenjie/Latent-Prior-GAN/results")
     parser.add_argument("--yaml_dir", default="/mnt/nfs/wenjie/Latent-Prior-GAN/yaml")
     parser.add_argument("--saver_name_pre", default="")
     parser.add_argument("--seed", type=int, default=42)
-
     parser.add_argument("--use_wandb", action="store_true", default=False)
     parser.add_argument("--wandb_project", default="Latent-Prior-GAN")
     parser.add_argument("--wandb_run_name", default="")
-
     parser.add_argument("--dist-backend", default="nccl")
     parser.add_argument("--local-rank", default=-1, type=int)
 
