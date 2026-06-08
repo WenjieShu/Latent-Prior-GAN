@@ -1,5 +1,4 @@
 """Latent Prior GAN training entry point."""
-
 import os
 import sys
 import time
@@ -35,47 +34,54 @@ def is_main_process():
     return int(os.environ.get('LOCAL_RANK', 0)) == 0
 
 def main_worker(args):
-
     """Main training worker."""
     assert torch.cuda.is_available(), "Training currently requires at least one GPU."
+
     init_distributed_mode(args)
     rank = dist.get_rank()
     device = rank % torch.cuda.device_count()
     torch.cuda.set_device(device)
 
-    init_distributed_mode(args)
-    if not torch.cuda.is_available():
-        raise RuntimeError("Latent Prior GAN training requires CUDA.")
-    if not getattr(args, "distributed", False):
-        args.gpu = 0
-        args.rank = 0
-        args.world_size = 1
-        torch.cuda.set_device(args.gpu)
-    device = torch.device(f"cuda:{args.gpu}")
-
     if is_main_process():
-        sysout_path = os.path.join(args.results_dir, "logs")
-        os.makedirs(sysout_path, exist_ok=True)
-        sys.stdout = Logger(sysout_path, args.saver_name_pre)
         print("=" * 72)
-        print("Latent Prior GAN decoder post-training")
+        print("Latent Prior GAN start training")
         print("=" * 72)
-        print("Objective: GAN only on x_fake = D_trainable(G_iMF(epsilon, y)); nt=1.0")
-        print("No paired reconstruction, no LPIPS, no Gram loss.")
-        for key, value in sorted(vars(args).items()):
-            print(f"{key}: {value}")
-        print("=" * 72)
-        print(f"Saved config: {args.config_path}")
+        # Initialize wandb
         if args.use_wandb and WANDB_AVAILABLE:
+            wandb_run_name = args.wandb_run_name if args.wandb_run_name else args.saver_name_pre
             wandb.init(
                 project=args.wandb_project,
-                name=args.wandb_run_name or args.saver_name_pre,
+                name=wandb_run_name,
                 config=vars(args),
             )
+            print(f"[wandb] Initialized: {args.wandb_project}/{wandb_run_name}")
+
+    model = LatentPriorGenerator(args)
+    if is_main_process():
+        tokenizer_para = sum(p.numel() for p in model.tokenizer.parameters())
+        print(f"Tokenizer Parameters: {tokenizer_para / 1e6:.2f}M")
+        
+        if model.diffusion is not None:
+            print(f"Diffusion Model: {args.model_type} (frozen)")
+    model = model.to(device)
+    model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+    losses = DinoGANLoss(args).to(device)
+    if is_main_process():
+        if losses.discriminator is not None:
+            disc_para_count = sum(p.numel() for p in losses.discriminator.parameters())
+            print(f"Discriminator Parameters: {disc_para_count / 1e6:.2f}M")
+        else:
+            print("Discriminator disabled")
+
+
+    model_para = list(model.tokenizer.vae.decoder.parameters())
+    disc_para = list(losses.discriminator.parameters()) if losses.discriminator is not None else []
+
+
 
     train_loader, train_sampler, train_size = build_dataloader(args, split="train")
-    if is_main_process():
-        print(f"Train size: {train_size}")
+
 
     start_epoch = 1
     global_step = 0
@@ -198,8 +204,9 @@ if __name__ == '__main__':
     dict_args = vars(args)
     
     # Setup logging
-    os.makedirs(args.saver_dir, exist_ok=True)
-    sys.stdout = Logger(args.saver_dir, args.saver_name_pre)
+    sysout_path = os.path.join(args.results_dir, "logs")
+    os.makedirs(sysout_path, exist_ok=True)
+    sys.stdout = Logger(sysout_path, args.saver_name_pre)
     
     if is_main_process():
         print("Configuration:")
