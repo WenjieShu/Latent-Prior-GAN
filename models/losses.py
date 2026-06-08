@@ -38,9 +38,9 @@ def lecam_reg(real_pred, fake_pred, lecam_ema):
     return reg
 
 
-class PostTrainingLoss(nn.Module):
+class DinoGANLoss(nn.Module):
     def __init__(self, args):
-        super(PostTrainingLoss, self).__init__()
+        super(DinoGANLoss, self).__init__()
         self.args = args
         self.disc_adaptive_weight = True
         self.lecam_ema = LeCAM_EMA()

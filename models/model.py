@@ -6,8 +6,7 @@ import torch.nn as nn
 from models.diffusion_pytorch import DiffusionModelPyTorch
 from models.tokenizer import Tokenizer
 
-
-class LatentPriorGAN(nn.Module):
+class LatentPriorGenerator(nn.Module):
     """Frozen iMF prior, trainable SD-VAE decoder."""
 
     def __init__(self, args):
@@ -41,8 +40,11 @@ class LatentPriorGAN(nn.Module):
         else:
             self.diffusion.train()
 
-    def decoder_parameters(self):
-        return list(self.tokenizer.vae.decoder.parameters())
+    def trainable_parameters(self):
+        if self.args.train_generator == False:
+            return list(self.tokenizer.vae.decoder.parameters())
+        else:
+            return list(self.tokenizer.vae.decoder.parameters()) + list(self.diffusion.model.parameters())
 
     ### please refer to FD-loss paper, how to pass GAN loss gradient to generator 
     ### current version: generator cannot be updated, we must find one version that generator can be updated  
@@ -53,7 +55,7 @@ class LatentPriorGAN(nn.Module):
             labels=labels,
             num_steps=self.args.num_steps,
             use_cfg=self.args.use_cfg,
-            device=labels.device,s
+            device=labels.device,
         )
 
     def decode(self, latents):
@@ -61,5 +63,5 @@ class LatentPriorGAN(nn.Module):
 
     def forward(self, labels=None):
         assert labels != None
-        x_gen  = self.decode(self.sample_latents(labels))
+        x_gen  = self.decode(self.sample_latents(labels)) ## there should be two version, trainable version or not trainable version of generator
         return x_gen

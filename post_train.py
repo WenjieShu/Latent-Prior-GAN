@@ -10,13 +10,15 @@ warnings.filterwarnings("ignore")
 import torch
 from torch import distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 import config
 from data.dataloader import build_dataloader
-from models.model import LatentPriorGAN
+from models.model import LatentPriorGenerator
+from models.losses import DinoGANLoss
 from utils.checkpointing import load_tokenizer_state, tokenizer_prefixed_state, tokenizer_state
 from utils.distributed import init_distributed_mode, is_main_process
-from utils.training import unwrap
 from utils.util import Logger, LossManager, save_checkpoint
 
 try:
