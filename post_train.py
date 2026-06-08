@@ -191,6 +191,7 @@ def main_worker(args):
                     args.checkpoint_dir,
                     f"checkpoint-{args.saver_name_pre}-epoch{epoch:03d}.pth.tar",
                 )
+                ## revision part
                 save_checkpoint(
                     {
                         ##"decoder": tokenizer_state(base_model.tokenizer),
