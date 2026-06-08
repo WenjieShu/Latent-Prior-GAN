@@ -126,7 +126,6 @@ def _save_config(args):
         json.dump(vars(args), f, indent=2, sort_keys=True)
     args.config_path = path
 
-
 def _set_seed(seed):
     os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
