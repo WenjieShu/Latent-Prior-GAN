@@ -74,9 +74,12 @@ def main_worker(args):
         else:
             print("Discriminator disabled")
 
+    if self.args.train_generator == False: 
+        model_para = list(model.tokenizer.vae.decoder.parameters())
+    else:
+        model_para = list(model.tokenizer.vae.decoder.parameters()) + list(model.diffusion.model.parameters())
+    disc_para = list(losses.discriminator.parameters()) 
 
-    model_para = list(model.tokenizer.vae.decoder.parameters())
-    disc_para = list(losses.discriminator.parameters()) if losses.discriminator is not None else []
 
 
 
