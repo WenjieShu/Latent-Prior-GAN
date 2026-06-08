@@ -1,6 +1,7 @@
 """Latent Prior GAN training entry point."""
 
 import os
+import sys
 import time
 import warnings
 
@@ -27,9 +28,8 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
-def main():
-    args = config.parse_arg()
-
+def main_worker(args):
+    
     init_distributed_mode(args)
     if not torch.cuda.is_available():
         raise RuntimeError("Latent Prior GAN training requires CUDA.")
@@ -43,7 +43,6 @@ def main():
     if is_main_process():
         sysout_path = os.path.join(args.results_dir, "logs")
         os.makedirs(sysout_path, exist_ok=True)
-        import sys
         sys.stdout = Logger(sysout_path, args.saver_name_pre)
         print("=" * 72)
         print("Latent Prior GAN decoder post-training")
@@ -179,5 +178,20 @@ def main():
             wandb.finish()
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    os.environ['NCCL_TIMEOUT_IN_MS'] = '7200000'
+    
+    args = config.parse_arg()
+    dict_args = vars(args)
+    
+    # Setup logging
+    os.makedirs(args.saver_dir, exist_ok=True)
+    sys.stdout = Logger(args.saver_dir, args.saver_name_pre)
+    
+    if is_main_process():
+        print("Configuration:")
+        for k, v in dict_args.items():
+            print(f"  {k}: {v}")
+        print()
+    
+    main_worker(args)

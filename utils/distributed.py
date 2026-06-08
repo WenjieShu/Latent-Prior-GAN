@@ -43,10 +43,11 @@ def init_distributed_mode(args):
     )
     dist.barrier()
 
-
-def is_main_process():
-    """Check if this is the main process."""
-    return not dist.is_initialized() or dist.get_rank() == 0
+ def is_main_process():
+    """Check if current process is main (rank 0)."""
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank() == 0
+    return int(os.environ.get('LOCAL_RANK', 0)) == 0
 
 
 def get_world_size():
