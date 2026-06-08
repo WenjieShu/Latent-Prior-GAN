@@ -120,8 +120,6 @@ def main_worker(args):
 
     losses = DDP(losses.to(device), device_ids=[args.gpu])
     losses.train()
-
-    rng = jax.random.PRNGKey(args.seed)
     train_loss = LossManager()
 
     if is_main_process():
@@ -139,8 +137,6 @@ def main_worker(args):
 
         start_time = time.time()
         for step, (real_images, labels) in enumerate(train_loader, start=1):
-            # Split RNG for this step
-            #rng, rng_step = jax.random.split(rng)
 
             with torch.autocast(device_type='cuda', dtype=torch.float32):
                 real_images = real_images.to(device, non_blocking=True)
@@ -193,7 +189,7 @@ def main_worker(args):
                 )
                 ## revision part
                 save_checkpoint(
-                    {
+                {
                         ##"decoder": tokenizer_state(base_model.tokenizer),
                         ##"model": tokenizer_prefixed_state(base_model.tokenizer),
                         ###"loss": base_model.gan_loss.state_dict(), needs revision
