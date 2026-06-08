@@ -46,7 +46,7 @@ class DinoGANLoss(nn.Module):
         self.lecam_ema = LeCAM_EMA()
         self.discriminator = DinoDiscriminator()
 
-    def forward(self, inputs, generations, optimizer_idx, last_layer=None):
+    def forward(self, inputs, generations, optimizer_idx):
         # generator update
         if optimizer_idx == 0:
             generation_aug = DiffAugment(generations.contiguous(), policy='color,translation,cutout_0.2', prob=0.5)

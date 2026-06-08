@@ -63,6 +63,7 @@ def main_worker(args):
         
         if model.diffusion is not None:
             print(f"Diffusion Model: {args.model_type} (frozen)")
+        
     model = model.to(device)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
@@ -80,93 +81,108 @@ def main_worker(args):
         model_para = list(model.tokenizer.vae.decoder.parameters()) + list(model.diffusion.model.parameters())
     disc_para = list(losses.discriminator.parameters()) 
 
+    optimizer = torch.optim.AdamW(model_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
+    optimizer_disc = torch.optim.AdamW(disc_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
 
 
+    #if args.resume:
+        #checkpoint = torch.load(args.resume, map_location="cpu")
+        #load_tokenizer_state(model.tokenizer, checkpoint["decoder"])
+        #start_epoch = int(checkpoint.get("epoch", 0)) + 1
+        #global_step = int(checkpoint.get("global_step", 0))
+        #if is_main_process():
+        #    print(f"Resumed from {args.resume} at epoch {start_epoch}")
 
+    resume_epoch = 0
+    ### copied from GAR-FID, needs slight revision
+    if args.resume:
+        checkpoint = torch.load(args.resume, map_location='cpu')
+        model.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        if losses.discriminator is not None and 'discriminator' in checkpoint:
+            losses.discriminator.load_state_dict(checkpoint['discriminator'])
+        if optimizer_disc is not None and 'optimizer_disc' in checkpoint:
+            optimizer_disc.load_state_dict(checkpoint['optimizer_disc'])
+        resume_epoch = int(checkpoint.get('epoch', 0))
+        if is_main_process():
+            print(f"Resumed from {args.resume} at epoch {resume_epoch}")
+            
     train_loader, train_sampler, train_size = build_dataloader(args, split="train")
 
-
-    start_epoch = 1
-    global_step = 0
-    checkpoint = None
-
-    model = LatentPriorGAN(args).to(device)
-    model.load_prior()
-    if args.resume:
-        checkpoint = torch.load(args.resume, map_location="cpu")
-        load_tokenizer_state(model.tokenizer, checkpoint["decoder"])
-        model.gan_loss.load_state_dict(checkpoint["loss"])
-        start_epoch = int(checkpoint.get("epoch", 0)) + 1
-        global_step = int(checkpoint.get("global_step", 0))
-        if is_main_process():
-            print(f"Resumed from {args.resume} at epoch {start_epoch}")
-
-    if getattr(args, "distributed", False):
-        model = DDP(model, device_ids=[args.gpu], find_unused_parameters=True)
+    model = DDP(model.to(device), device_ids=[args.gpu], find_unused_parameters=True)
     model.train()
+    model.module.tokenizer.vae.encoder.eval()
+    if model.module.diffusion is not None:
+        if self.args.train_generator == False: 
+            model.module.diffusion.eval()
+        else:
+            model.module.diffusion.train()
 
-    base_model = unwrap(model)
-    decoder_params = base_model.decoder_parameters()
-    disc_params = base_model.discriminator_parameters()
-    optimizer_dec = torch.optim.AdamW(
-        decoder_params, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay
-    )
-    optimizer_disc = torch.optim.AdamW(
-        disc_params, lr=args.disc_lr, betas=(0.9, 0.95), weight_decay=args.weight_decay
-    )
-    if checkpoint is not None:
-        optimizer_dec.load_state_dict(checkpoint["optimizer_dec"])
-        optimizer_disc.load_state_dict(checkpoint["optimizer_disc"])
+    losses = DDP(losses.to(device), device_ids=[args.gpu])
+    losses.train()
 
-    train_meter = LossManager()
+    rng = jax.random.PRNGKey(args.seed)
+    train_loss = LossManager()
+
+    if is_main_process():
+        print("\nStart training...")
+
+    start_epoch = resume_epoch + 1
     for epoch in range(start_epoch, args.epochs + 1):
         if train_sampler is not None:
             train_sampler.set_epoch(epoch)
-        epoch_start = time.time()
 
+        if is_main_process():
+            print(f"\n{'=' * 60}")
+            print(f"Epoch {epoch}/{args.epochs}, LR: {optimizer.param_groups[0]['lr']:.6f}")
+            print(f"{'=' * 60}")
+
+        start_time = time.time()
         for step, (real_images, labels) in enumerate(train_loader, start=1):
-            real_images = real_images.to(device, non_blocking=True)
-            labels = labels.to(device, non_blocking=True)
+            # Split RNG for this step
+            #rng, rng_step = jax.random.split(rng)
 
-            base_model.set_discriminator_requires_grad(False)
-            optimizer_dec.zero_grad(set_to_none=True)
-            optimizer_disc.zero_grad(set_to_none=True)
-            g_loss, g_pack = model(mode="generator", labels=labels)
-            g_loss.backward()
-            torch.nn.utils.clip_grad_norm_(decoder_params, 1.0)
-            optimizer_dec.step()
-            base_model.set_discriminator_requires_grad(True)
+            with torch.autocast(device_type='cuda', dtype=torch.float32):
+                real_images = real_images.to(device, non_blocking=True)
+                labels = labels.to(device, non_blocking=True)
 
-            disc_active = epoch >= args.disc_start_epoch
-            if disc_active:
-                optimizer_disc.zero_grad(set_to_none=True)
-                d_loss, d_pack = model(
-                    mode="discriminator",
-                    real_images=real_images,
-                    labels=labels,
-                )
+                optimizer.zero_grad()
+                fake_images = model(labels=labels)
+                gen_loss, gen_loss_pack = losses(
+                    inputs = real_images,
+                    generations = fake_images,
+                    optimizer_idx=0,
+                    )
+                gen_loss.backward()
+                torch.nn.utils.clip_grad_norm_(model_para, 1.0)
+                optimizer.step()
+
+                optimizer_disc.zero_grad()
+                d_loss, d_loss_pack = losses(
+                    inputs = real_images,
+                    generations = fake_images,
+                    optimizer_idx=1,
+                    )
                 d_loss.backward()
-                torch.nn.utils.clip_grad_norm_(disc_params, 1.0)
+                torch.nn.utils.clip_grad_norm_(disc_para, 1.0)
                 optimizer_disc.step()
-                g_pack.update(d_pack)
+
+                # Merge loss packs
+                for k, v in d_loss_pack.items():
+                    gen_loss_pack[k] = v
+                torch.cuda.synchronize()
 
             global_step += 1
-            train_meter.add_loss(g_pack)
-
+            train_loss.add_loss(gen_loss_pack)
             if is_main_process() and step % args.log_interval == 0:
-                msg = train_meter.pprint(
+                msg = train_loss.pprint(
                     window=args.log_interval,
                     prefix=f"Epoch [{epoch}/{args.epochs}] Step [{step}/{len(train_loader)}]",
                 )
                 print(msg)
                 if args.use_wandb and WANDB_AVAILABLE:
-                    wandb.log({f"train/{k}": train_meter.get_avg(k, args.log_interval)
-                               for k in train_meter.losses}, step=global_step)
-
-            if args.max_train_steps and step >= args.max_train_steps:
-                if is_main_process():
-                    print(f"Stopping epoch early after {args.max_train_steps} steps.")
-                break
+                    wandb.log({f"train/{k}": train_loss.get_avg(k, args.log_interval)
+                               for k in train_loss.losses}, step=global_step
 
         if is_main_process():
             print(f"Epoch {epoch} finished in {time.time() - epoch_start:.1f}s")
@@ -177,10 +193,10 @@ def main_worker(args):
                 )
                 save_checkpoint(
                     {
-                        "decoder": tokenizer_state(base_model.tokenizer),
-                        "model": tokenizer_prefixed_state(base_model.tokenizer),
-                        "loss": base_model.gan_loss.state_dict(),
-                        "optimizer_dec": optimizer_dec.state_dict(),
+                        ##"decoder": tokenizer_state(base_model.tokenizer),
+                        ##"model": tokenizer_prefixed_state(base_model.tokenizer),
+                        ###"loss": base_model.gan_loss.state_dict(), needs revision
+                        "optimizer": optimizer.state_dict(),
                         "optimizer_disc": optimizer_disc.state_dict(),
                         "epoch": epoch,
                         "global_step": global_step,
@@ -190,7 +206,7 @@ def main_worker(args):
                     filename=ckpt_path,
                 )
 
-        train_meter.clear()
+        train_loss.clear()
         if dist.is_available() and dist.is_initialized():
             dist.barrier()
 
