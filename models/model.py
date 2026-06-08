@@ -40,12 +40,6 @@ class LatentPriorGenerator(nn.Module):
         else:
             self.diffusion.train()
 
-    def trainable_parameters(self):
-        if self.args.train_generator == False:
-            return list(self.tokenizer.vae.decoder.parameters())
-        else:
-            return list(self.tokenizer.vae.decoder.parameters()) + list(self.diffusion.model.parameters())
-
     ### please refer to FD-loss paper, how to pass GAN loss gradient to generator 
     ### current version: generator cannot be updated, we must find one version that generator can be updated  
     @torch.no_grad()

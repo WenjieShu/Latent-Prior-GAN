@@ -44,7 +44,7 @@ class DinoGANLoss(nn.Module):
         self.args = args
         self.disc_adaptive_weight = True
         self.lecam_ema = LeCAM_EMA()
-        self.discriminator = None if getattr(args, "disable_gan", False) else DinoDiscriminator()
+        self.discriminator = DinoDiscriminator()
 
     def forward(self, inputs, generations, optimizer_idx, last_layer=None):
         # generator update
