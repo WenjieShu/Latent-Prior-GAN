@@ -19,7 +19,7 @@ from data.dataloader import build_dataloader
 from models.model import LatentPriorGenerator
 from models.losses import DinoGANLoss
 from utils.checkpointing import load_tokenizer_state, tokenizer_prefixed_state, tokenizer_state
-from utils.distributed import init_distributed_mode, is_main_process
+from utils.distributed import init_distributed_mode
 from utils.util import Logger, LossManager, save_checkpoint
 
 try:
@@ -28,8 +28,21 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
+def is_main_process():
+    """Check if current process is main (rank 0)."""
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank() == 0
+    return int(os.environ.get('LOCAL_RANK', 0)) == 0
+
 def main_worker(args):
-    
+
+    """Main training worker."""
+    assert torch.cuda.is_available(), "Training currently requires at least one GPU."
+    init_distributed_mode(args)
+    rank = dist.get_rank()
+    device = rank % torch.cuda.device_count()
+    torch.cuda.set_device(device)
+
     init_distributed_mode(args)
     if not torch.cuda.is_available():
         raise RuntimeError("Latent Prior GAN training requires CUDA.")
