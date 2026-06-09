@@ -16,10 +16,10 @@ Expected cluster assets:
 /mnt/nfs/wenjie/torch_cache/hub/checkpoints/dino_deitsmall16_pretrain.pth
 ```
 
-Expected V2 output roots:
+Expected Latent Prior GAN output roots:
 
 ```text
-/mnt/nfs/wenjie/IMF-GAP_V2/checkpoints/
-/mnt/nfs/wenjie/IMF-GAP_V2/results/
-/mnt/nfs/wenjie/IMF-GAP_V2/logs/
+/mnt/nfs/wenjie/Latent-Prior-GAN/checkpoints/
+/mnt/nfs/wenjie/Latent-Prior-GAN/results/
+/mnt/nfs/wenjie/Latent-Prior-GAN/logs/
 ```

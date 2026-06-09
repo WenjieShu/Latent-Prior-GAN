@@ -1,11 +1,9 @@
 # Latent Prior GAN
 
-This repository contains clean training code for decoder-side iMF experiments:
+This repository contains clean training code for decoder-side iMF experiments.
 
 - **Latent Prior GAN**: adapt the SD-VAE decoder on pure iMF-generated latents
   with an adversarial image-space objective.
-- **GAR**: adapt the SD-VAE decoder on denoised encoder latents with
-  reconstruction, perceptual, Gram, and adversarial losses.
 
 ## Objectives
 
@@ -20,18 +18,9 @@ real ImageNet images vs. x_fake -> adversarial loss
 It does **not** use paired reconstruction targets, VAE encoder latents,
 LPIPS/perceptual loss, Gram loss, or reconstruction MSE.
 
-GAR is kept as a baseline and uses paired reconstruction:
-
-```text
-x -> frozen SD-VAE encoder -> z_e
-z_e -> add noise eta_t -> z_t
-z_t, y -> frozen iMF denoiser -> z_d
-z_d -> trainable SD-VAE decoder -> x_rec
-x_rec vs. x -> MSE + perceptual/LPIPS + Gram + GAN
-```
-
-Both paths train only `tokenizer.vae.decoder`; the encoder, iMF generator, and
-the rest of the VAE remain frozen.
+The default path trains only `tokenizer.vae.decoder`; the encoder, iMF
+generator, and the rest of the VAE remain frozen. Generator-side training is a
+planned isolated extension and should use an explicit training mode.
 
 ## Main Files
 
@@ -39,20 +28,11 @@ the rest of the VAE remain frozen.
 post_train.py
     Latent Prior GAN training entry point.
 
-post_train_gar.py
-    Clean GAR training entry point.
-
 models/model.py
-    Frozen iMF prior, trainable SD-VAE decoder, and DINO GAN objective.
+    Frozen iMF prior and trainable SD-VAE decoder.
 
 models/losses.py
     GAN loss with a DINO-based discriminator.
-
-models/gar_model.py
-    GAR model wrapper: encoder latent -> iMF denoise -> decoder.
-
-models/gar_loss.py
-    GAR loss: MSE + perceptual/LPIPS + Gram + adversarial objective.
 
 models/tokenizer.py
     SD-VAE wrapper. The encoder is frozen; only vae.decoder is trainable.
@@ -63,17 +43,8 @@ models/diffusion_pytorch.py
 data/dataloader.py
     ImageNet dataloader for real discriminator samples.
 
-utils/config.py
-    YAML/JSON config loading and saving helpers.
-
-utils/checkpointing.py
-    Checkpoint state-dict cleanup and resume helpers.
-
-utils/training.py
-    Seed, TF32, trainable-parameter, and DDP unwrap helpers.
-
-yaml/gar/
-    Clean GAR configs.
+config.py
+    Argument parsing, YAML loading, output directory setup, and seed setup.
 
 yaml/latent_prior_gan/
     Latent Prior GAN configs.
@@ -81,8 +52,8 @@ yaml/latent_prior_gan/
 scripts/generated/sbatch_latent_prior_gan_xl_nt1_gan_only.sh
     Slurm template for Latent Prior GAN.
 
-scripts/generated/sbatch_gar_b_fixednoise0p5_gan.sh
-    Slurm template for GAR.
+scripts/generated/sbatch_lpg_b_eval_openai.sh
+    OpenAI gFID w/o CFG evaluation template for the B-model checkpoint.
 ```
 
 ## Training
@@ -90,7 +61,7 @@ scripts/generated/sbatch_gar_b_fixednoise0p5_gan.sh
 Latent Prior GAN, iMF-XL, nt=1.0, no CFG:
 
 ```bash
-cd /mnt/nfs/wenjie/IMF-GAP_V2
+cd /mnt/nfs/wenjie/Latent-Prior-GAN
 bash scripts/generated/sbatch_latent_prior_gan_xl_nt1_gan_only.sh
 ```
 
@@ -99,7 +70,7 @@ Direct command:
 ```bash
 export SD_VAE_PATH=/mnt/nfs/wenjie/vae_assets/sd-vae-ft-mse
 export DINO_CKPT_PATH=/mnt/nfs/wenjie/torch_cache/hub/checkpoints/dino_deitsmall16_pretrain.pth
-export PYTHONPATH=/mnt/nfs/wenjie/IMF-GAP_V2:$PYTHONPATH
+export PYTHONPATH=/mnt/nfs/wenjie/Latent-Prior-GAN:$PYTHONPATH
 
 /mnt/nfs/wenjie/FD-Loss/.venv/bin/python -m torch.distributed.run \
   --standalone \
@@ -108,33 +79,15 @@ export PYTHONPATH=/mnt/nfs/wenjie/IMF-GAP_V2:$PYTHONPATH
   --config yaml/latent_prior_gan/imf_xl_nt1_gan_only.yaml
 ```
 
-GAR, iMF-B, fixed noise eta_t=0.5:
-
-```bash
-cd /mnt/nfs/wenjie/IMF-GAP_V2
-bash scripts/generated/sbatch_gar_b_fixednoise0p5_gan.sh
-```
-
-Direct command:
-
-```bash
-/mnt/nfs/wenjie/FD-Loss/.venv/bin/python -m torch.distributed.run \
-  --standalone \
-  --nproc_per_node=8 \
-  post_train_gar.py \
-  --config yaml/gar/imf_b_fixednoise0p5_gan.yaml
-```
-
 ## Checkpoints
 
-V2 checkpoints are saved as:
+Latent Prior GAN checkpoints follow the GAR-FID training format:
 
 ```python
 {
-    "decoder": ...,        # tokenizer state dict with trained vae.decoder
-    "model": ...,          # tokenizer-prefixed state dict for eval compatibility
-    "loss": ...,           # GAN loss/discriminator state
-    "optimizer_dec": ...,
+    "model": ...,          # DDP-unwrapped LatentPriorGenerator state dict
+    "optimizer": ...,
+    "discriminator": ...,
     "optimizer_disc": ...,
     "epoch": ...,
     "global_step": ...,
@@ -142,12 +95,11 @@ V2 checkpoints are saved as:
 }
 ```
 
-The `model` key is intentionally compatible with existing GAR eval scripts that
-load post-trained decoder weights from `tokenizer.*` keys.
+The `model` key contains `tokenizer.*` weights, so existing GAR eval scripts can
+extract the post-trained decoder weights from it.
 
-During distributed training, only `tokenizer.vae.decoder` is wrapped with DDP
-and optimized. The rest of the VAE, including the encoder and post-quant
-projection, stays frozen.
+During distributed training, the top-level Latent Prior GAN module is wrapped
+with DDP. The encoder and frozen iMF prior stay frozen; the decoder is optimized.
 
 ## External Artifacts
 
@@ -164,14 +116,18 @@ cluster are:
 Outputs should stay under:
 
 ```text
-/mnt/nfs/wenjie/IMF-GAP_V2/checkpoints/
-/mnt/nfs/wenjie/IMF-GAP_V2/results/
-/mnt/nfs/wenjie/IMF-GAP_V2/logs/
+/mnt/nfs/wenjie/Latent-Prior-GAN/checkpoints/
+/mnt/nfs/wenjie/Latent-Prior-GAN/results/
+/mnt/nfs/wenjie/Latent-Prior-GAN/logs/
 ```
 
 ## Code Hygiene Rules
 
-- Keep Latent Prior GAN and GAR in separate entry points and loss modules.
-- Use `models/gar_loss.py` for reconstruction/perceptual/Gram GAR losses.
-- Use `models/losses.py` for the DINO-discriminator GAN objective.
+- Follow the validated VQ-Transplant/GAR training template for GAN training.
+- Do not rewrite `main_worker` or `models/losses.py` with generated code.
+- Use `models/losses.py` only for the DINO-discriminator GAN objective.
+- Keep model/generation code in `models/model.py` and loss code in
+  `models/losses.py`.
+- Do not add duplicate directories or duplicate modules for analysis
+  experiments; extend the existing modules instead.
 - Do not commit generated images, NPZs, checkpoints, logs, or metric caches.

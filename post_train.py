@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore")
 
 import torch
 from torch import distributed as dist
+from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -17,7 +18,6 @@ import config
 from data.dataloader import build_dataloader
 from models.model import LatentPriorGenerator
 from models.losses import DinoGANLoss
-from utils.checkpointing import load_tokenizer_state, tokenizer_prefixed_state, tokenizer_state
 from utils.distributed import init_distributed_mode
 from utils.util import Logger, LossManager, save_checkpoint
 
@@ -75,7 +75,7 @@ def main_worker(args):
         else:
             print("Discriminator disabled")
 
-    if self.args.train_generator == False: 
+    if args.train_generator == False: 
         model_para = list(model.tokenizer.vae.decoder.parameters())
     else:
         model_para = list(model.tokenizer.vae.decoder.parameters()) + list(model.diffusion.model.parameters())
@@ -84,26 +84,19 @@ def main_worker(args):
     optimizer = torch.optim.AdamW(model_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
     optimizer_disc = torch.optim.AdamW(disc_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
 
-
-    #if args.resume:
-        #checkpoint = torch.load(args.resume, map_location="cpu")
-        #load_tokenizer_state(model.tokenizer, checkpoint["decoder"])
-        #start_epoch = int(checkpoint.get("epoch", 0)) + 1
-        #global_step = int(checkpoint.get("global_step", 0))
-        #if is_main_process():
-        #    print(f"Resumed from {args.resume} at epoch {start_epoch}")
-
     resume_epoch = 0
+    global_step = 0
     ### copied from GAR-FID, needs slight revision
     if args.resume:
         checkpoint = torch.load(args.resume, map_location='cpu')
         model.load_state_dict(checkpoint['model'])
         optimizer.load_state_dict(checkpoint['optimizer'])
-        if losses.discriminator is not None and 'discriminator' in checkpoint:
+        if losses.discriminator is not None and checkpoint.get('discriminator') is not None:
             losses.discriminator.load_state_dict(checkpoint['discriminator'])
         if optimizer_disc is not None and 'optimizer_disc' in checkpoint:
             optimizer_disc.load_state_dict(checkpoint['optimizer_disc'])
         resume_epoch = int(checkpoint.get('epoch', 0))
+        global_step = int(checkpoint.get('global_step', 0))
         if is_main_process():
             print(f"Resumed from {args.resume} at epoch {resume_epoch}")
             
@@ -113,7 +106,7 @@ def main_worker(args):
     model.train()
     model.module.tokenizer.vae.encoder.eval()
     if model.module.diffusion is not None:
-        if self.args.train_generator == False: 
+        if args.train_generator == False: 
             model.module.diffusion.eval()
         else:
             model.module.diffusion.train()
@@ -178,22 +171,23 @@ def main_worker(args):
                 print(msg)
                 if args.use_wandb and WANDB_AVAILABLE:
                     wandb.log({f"train/{k}": train_loss.get_avg(k, args.log_interval)
-                               for k in train_loss.losses}, step=global_step
+                               for k in train_loss.losses}, step=global_step)
 
         if is_main_process():
-            print(f"Epoch {epoch} finished in {time.time() - epoch_start:.1f}s")
+            print(f"Epoch {epoch} finished in {time.time() - start_time:.1f}s")
             if epoch % args.save_interval == 0 or epoch == args.epochs:
                 ckpt_path = os.path.join(
                     args.checkpoint_dir,
                     f"checkpoint-{args.saver_name_pre}-epoch{epoch:03d}.pth.tar",
                 )
-                ## revision part
                 save_checkpoint(
-                {
-                        ##"decoder": tokenizer_state(base_model.tokenizer),
-                        ##"model": tokenizer_prefixed_state(base_model.tokenizer),
-                        ###"loss": base_model.gan_loss.state_dict(), needs revision
+                    {
+                        "model": model.module.state_dict(),
                         "optimizer": optimizer.state_dict(),
+                        "discriminator": (
+                            losses.module.discriminator.state_dict()
+                            if losses.module.discriminator is not None else None
+                        ),
                         "optimizer_disc": optimizer_disc.state_dict(),
                         "epoch": epoch,
                         "global_step": global_step,

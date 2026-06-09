@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/mnt/nfs/wenjie/IMF-GAP_V2}"
+PROJECT_DIR="${PROJECT_DIR:-/mnt/nfs/wenjie/Latent-Prior-GAN}"
 VENV_DIR="${VENV_DIR:-/mnt/nfs/wenjie/FD-Loss/.venv}"
 CONFIG="${CONFIG:-${PROJECT_DIR}/yaml/latent_prior_gan/imf_xl_nt1_gan_only.yaml}"
 
