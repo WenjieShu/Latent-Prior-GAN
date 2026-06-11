@@ -135,18 +135,9 @@ def main_worker(args):
                 real_images = real_images.to(device, non_blocking=True)
                 labels = labels.to(device, non_blocking=True)
 
-                optimizer.zero_grad()
-                fake_images = model(labels=labels)
-                gen_loss, gen_loss_pack = losses(
-                    inputs = real_images,
-                    generations = fake_images,
-                    optimizer_idx=0,
-                    )
-                gen_loss.backward()
-                torch.nn.utils.clip_grad_norm_(model_para, 1.0)
-                optimizer.step()
-
                 optimizer_disc.zero_grad()
+                with torch.no_grad():
+                    fake_images = model(labels=labels)
                 d_loss, d_loss_pack = losses(
                     inputs = real_images,
                     generations = fake_images,
@@ -156,13 +147,25 @@ def main_worker(args):
                 torch.nn.utils.clip_grad_norm_(disc_para, 1.0)
                 optimizer_disc.step()
 
-                # Merge loss packs
-                for k, v in d_loss_pack.items():
-                    gen_loss_pack[k] = v
+                if global_step >= args.warmup_steps:
+                    optimizer.zero_grad()
+                    fake_images = model(labels=labels)
+                    gen_loss, gen_loss_pack = losses(
+                        inputs = real_images,
+                        generations = fake_images,
+                        optimizer_idx=0,
+                        )
+                    gen_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model_para, 1.0)
+                    optimizer.step()
+
                 torch.cuda.synchronize()
+                # Merge loss packs
+                if global_step >= args.warmup_steps:
+                    d_loss_pack.add(gen_loss_pack)
 
             global_step += 1
-            train_loss.add_loss(gen_loss_pack)
+            train_loss.add_loss(d_loss_pack)
             if is_main_process() and step % args.log_interval == 0:
                 msg = train_loss.pprint(
                     window=args.log_interval,

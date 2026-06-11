@@ -43,6 +43,7 @@ def parse_arg():
     parser.add_argument("--train_generator", action="store_true", default=False)
 
     parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--warmup_steps", type=int, default=500)
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--disc_lr", type=float, default=1e-5)
     parser.add_argument("--weight_decay", type=float, default=1e-4)
