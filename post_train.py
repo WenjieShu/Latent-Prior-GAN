@@ -82,7 +82,7 @@ def main_worker(args):
     disc_para = list(losses.discriminator.parameters()) 
 
     optimizer = torch.optim.AdamW(model_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
-    optimizer_disc = torch.optim.AdamW(disc_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
+    optimizer_disc = torch.optim.AdamW(disc_para, lr=args.disc_lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
 
     resume_epoch = 0
     global_step = 0
@@ -162,7 +162,8 @@ def main_worker(args):
                 torch.cuda.synchronize()
                 # Merge loss packs
                 if global_step >= args.warmup_steps:
-                    d_loss_pack.add(gen_loss_pack)
+                    for key, value in gen_loss_pack.items():
+                        d_loss_pack[key] = value
 
             global_step += 1
             train_loss.add_loss(d_loss_pack)
