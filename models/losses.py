@@ -74,6 +74,6 @@ class DinoGANLoss(nn.Module):
 
             logits_real = logits_real.detach().mean()
             logits_fake = logits_fake.detach().mean()
-            loss_pack = Pack(d_loss=d_loss, logits_real=logits_real, logits_fake=logits_fake)
+            loss_pack = Pack(d_loss=d_loss, logits_real=logits_real, logits_fake=logits_fake, hinge_d_loss=adversarial_loss)
 
             return d_loss, loss_pack
