@@ -40,9 +40,7 @@ class LatentPriorGenerator(nn.Module):
         else:
             self.diffusion.train()
 
-    ### please refer to FD-loss paper, how to pass GAN loss gradient to generator 
-    ### current version: generator cannot be updated, we must find one version that generator can be updated  
-    @torch.no_grad()
+     @torch.no_grad()
     def sample_latents(self, labels):
         return self.diffusion.generate(
             batch_size=labels.size(0),
@@ -51,11 +49,35 @@ class LatentPriorGenerator(nn.Module):
             use_cfg=self.args.use_cfg,
             device=labels.device,
         )
+    
+    @torch.no_grad()
+    def supervision_from_GAR(self, real_images, labels):
+    """GAR-style reconstruction: E(x) -> noisy latent -> frozen iMF -> decoder."""
+        z_real = self.tokenizer.encode(real_images)
+        z_denoised = self.diffusion.denoise_from_encoder_latent(
+            z_real,
+            maximum_noise_level=self.args.supervision_noise_level,
+            normalized=self.args.supervision_normalized,
+            labels=labels,
+            num_steps=self.args.supervision_num_steps,
+            use_cfg=self.args.supervision_use_cfg,
+            fixed_noise=True,
+            minimum_noise_level=args.supervision_noise_level,
+        )
+    return z_denoised
 
     def decode(self, latents):
         return self.tokenizer.decode(latents).clamp(-1, 1)
 
     def forward(self, labels=None):
         assert labels != None
-        x_gen  = self.decode(self.sample_latents(labels)) ## there should be two version, trainable version or not trainable version of generator
+        x_gen  = self.decode(self.sample_latents(labels)) 
         return x_gen
+
+    def generation_and_supervison(self, x, labels=None):
+        assert labels != None
+        x_gen  = self.decode(self.sample_latents(labels)) 
+        z_denoised = self.supervision_from_GAR(x, labels)
+        x_sup = self.decode(z_denoised)
+        return x_gen, x_sup
+        
