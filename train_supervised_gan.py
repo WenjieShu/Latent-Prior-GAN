@@ -70,10 +70,7 @@ def main_worker(args):
         disc_para_count = sum(p.numel() for p in supervised_losses.discriminator.parameters())
         print(f"Discriminator Parameters: {disc_para_count / 1e6:.2f}M")
 
-    if args.train_generator == False:
-        model_para = list(model.tokenizer.vae.decoder.parameters())
-    else:
-        model_para = list(model.tokenizer.vae.decoder.parameters()) + list(model.diffusion.model.parameters())
+    model_para = list(model.tokenizer.vae.decoder.parameters())
     disc_para = list(supervised_losses.discriminator.parameters())
 
     optimizer = torch.optim.AdamW(model_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)

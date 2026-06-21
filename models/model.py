@@ -62,11 +62,14 @@ class LatentPriorGenerator(nn.Module):
     def decode(self, latents):
         return self.tokenizer.decode(latents).clamp(-1, 1)
 
+
+    ## pure gan mode
     def forward(self, labels=None):
         assert labels != None
         x_gen  = self.decode(self.sample_latents(labels)) 
         return x_gen
 
+    ## supervised gan mode
     def generation_and_supervison(self, x, labels=None):
         assert labels != None
         x_gen  = self.decode(self.sample_latents(labels)) 

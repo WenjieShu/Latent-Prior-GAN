@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.lpips import LPIPS
 from models.discriminators import DinoDiscriminator
 from utils.diff_aug import DiffAugment
 import torch.distributed as tdist
@@ -70,7 +69,6 @@ class SupervisedDinoGANLoss(nn.Module):
         return d_weight.detach()
 
     def forward(self, inputs, generations, supervisions, optimizer_idx, last_layer=None):
-            
         # generator update
         if optimizer_idx == 0:
             rec_loss = F.mse_loss(inputs.contiguous(), supervisions.contiguous())
@@ -94,7 +92,6 @@ class SupervisedDinoGANLoss(nn.Module):
 
         # discriminator update
         if optimizer_idx == 1:
-
             logits_real = self.discriminator(DiffAugment(inputs.contiguous().detach(), policy='color,translation,cutout_0.2', prob=0.5))
             logits_fake = self.discriminator(DiffAugment(generations.contiguous().detach(), policy='color,translation,cutout_0.2', prob=0.5))
 
