@@ -125,7 +125,11 @@ def main_worker(args):
 
         if is_main_process():
             print(f"\n{'=' * 60}")
-            print(f"Epoch {epoch}/{args.epochs}, LR: {optimizer.param_groups[0]['lr']:.6f}")
+            print(
+                f"Epoch {epoch}/{args.epochs}, "
+                f"LR: {optimizer.param_groups[0]['lr']:.6f}, "
+                f"Disc LR: {optimizer_disc.param_groups[0]['lr']:.6f}"
+            )
             print(f"{'=' * 60}")
 
         start_time = time.time()
@@ -134,6 +138,13 @@ def main_worker(args):
             with torch.autocast(device_type='cuda', dtype=torch.float32):
                 real_images = real_images.to(device, non_blocking=True)
                 labels = labels.to(device, non_blocking=True)
+
+                if args.disc_lr_decay_steps > 0 and global_step >= args.warmup_steps:
+                    decay_step = min(global_step - args.warmup_steps, args.disc_lr_decay_steps)
+                    decay_ratio = decay_step / args.disc_lr_decay_steps
+                    current_disc_lr = args.disc_lr + (args.lr - args.disc_lr) * decay_ratio
+                    for param_group in optimizer_disc.param_groups:
+                        param_group["lr"] = current_disc_lr
 
                 optimizer_disc.zero_grad()
                 with torch.no_grad():
@@ -166,6 +177,7 @@ def main_worker(args):
                         d_loss_pack[key] = value
 
             global_step += 1
+            d_loss_pack["disc_lr"] = optimizer_disc.param_groups[0]["lr"]
             train_loss.add_loss(d_loss_pack)
             if is_main_process() and step % args.log_interval == 0:
                 msg = train_loss.pprint(
