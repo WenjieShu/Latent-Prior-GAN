@@ -26,19 +26,12 @@ class LatentPriorGenerator(nn.Module):
             param.requires_grad = False
         for param in self.tokenizer.vae.decoder.parameters():
             param.requires_grad = True
-        if self.args.train_generator == False:
-            for param in self.diffusion.parameters():
-                param.requires_grad = False
-        else:
-            for param in self.diffusion.parameters():
-                param.requires_grad = True
+        for param in self.diffusion.parameters():
+            param.requires_grad = False
 
         self.tokenizer.vae.encoder.eval()
         self.tokenizer.vae.decoder.train()
-        if self.args.train_generator == False:
-            self.diffusion.eval()
-        else:
-            self.diffusion.train()
+        self.diffusion.eval()
 
      @torch.no_grad()
     def sample_latents(self, labels):

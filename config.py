@@ -40,7 +40,6 @@ def parse_arg():
     parser.add_argument("--cfg_omega", type=float, default=None)
     parser.add_argument("--cfg_t_min", type=float, default=None)
     parser.add_argument("--cfg_t_max", type=float, default=None)
-    parser.add_argument("--train_generator", action="store_true", default=False)
 
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--debug_steps", type=int, default=0)
