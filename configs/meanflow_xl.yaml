@@ -1,0 +1,9 @@
+prior_family: meanflow
+vae_type: ema
+epochs: 5
+batch_size: 8
+lr: 1.0e-5
+disc_lr: 1.0e-5
+supervision_noise_level: 0.2
+use_cfg: true
+supervision_use_cfg: true

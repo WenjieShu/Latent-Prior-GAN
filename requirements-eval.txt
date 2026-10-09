@@ -1,0 +1,4 @@
+# Install with requirements.txt for PyTorch evaluation.
+scipy>=1.11
+torch-fidelity==0.3.0
+# OpenAI evaluation additionally requires tensorflow (see docs/reproduction.md).

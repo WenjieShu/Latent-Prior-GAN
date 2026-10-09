@@ -1,0 +1,9 @@
+prior_family: dmf
+epochs: 5
+batch_size: 8
+seed: 0
+lr: 1.0e-6
+disc_lr: 1.0e-6
+supervision_noise_level: 0.4
+use_cfg: true
+supervision_use_cfg: true

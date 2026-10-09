@@ -1,133 +1,92 @@
 # Latent Prior GAN
 
-This repository contains clean training code for decoder-side iMF experiments.
+LP-GAN adapts the decoder of a latent generative model while freezing the latent prior and image encoder. A discriminator learns from generated images, and paired supervision anchors the decoder to source images. Training has no additional generation-time network.
 
-- **Latent Prior GAN**: adapt the SD-VAE decoder on pure iMF-generated latents
-  with an adversarial image-space objective.
+[Wenjie Shu](https://wenjieshu.github.io/) · [Repository](https://github.com/WenjieShu/Latent-Prior-GAN)
 
-## Objectives
+## Supported models
 
-Latent Prior GAN is generation-side and unpaired:
+| Frozen prior | Decoder | Paired supervision | Sampling |
+|:--|:--|:--|:--|
+| iMF B / M / L / XL | SD-VAE MSE | generation-aware reconstruction at noise level η | official `.pth`, registered CFG interval, 1 step |
+| DMF XL | SD-VAE MSE | native denoising of perturbed encoder latents | native checkpoint and source checkout, 1 step |
+| MeanFlow XL | SD-VAE EMA | native trajectory from perturbed encoder latents | AlphaFlow snapshot loader and EMA VAE, 1 step |
+| TiTok L32 / B64 | TiTok decoder modules | cached real tokens paired with center-cropped source images | frozen MaskGIT, 8 steps |
 
-```text
-epsilon, y -> frozen iMF latent prior -> z_g
-z_g -> trainable SD-VAE decoder -> x_fake
-real ImageNet images vs. x_fake -> adversarial loss
-```
+The continuous objective uses MSE and the experimental LPIPS/ConvNeXt perceptual loss, plus adaptively weighted adversarial loss. TiTok uses paired MSE and adaptively weighted adversarial loss. Both preserve the experimental DINO discriminator, LeCAM, consistency regularization, and generator-then-discriminator update order. `train_pure_gan.py` provides the adversarial-only ablation.
 
-It does **not** use paired reconstruction targets, VAE encoder latents,
-LPIPS/perceptual loss, Gram loss, or reconstruction MSE.
-
-The default path trains only `tokenizer.vae.decoder`; the encoder, iMF
-generator, and the rest of the VAE remain frozen. Generator-side training is a
-planned isolated extension and should use an explicit training mode.
-
-## Main Files
-
-```text
-post_train.py
-    Latent Prior GAN training entry point.
-
-models/model.py
-    Frozen iMF prior and trainable SD-VAE decoder.
-
-models/losses.py
-    GAN loss with a DINO-based discriminator.
-
-models/tokenizer.py
-    SD-VAE wrapper. The encoder is frozen; only vae.decoder is trainable.
-
-models/diffusion_pytorch.py
-    PyTorch iMF wrapper. The generator is frozen and samples z_g from noise.
-
-data/dataloader.py
-    ImageNet dataloader for real discriminator samples.
-
-config.py
-    Argument parsing, YAML loading, output directory setup, and seed setup.
-
-yaml/latent_prior_gan/
-    Latent Prior GAN configs.
-
-scripts/generated/sbatch_latent_prior_gan_xl_nt1_gan_only.sh
-    Slurm template for Latent Prior GAN.
-
-scripts/generated/sbatch_lpg_b_eval_openai.sh
-    OpenAI gFID w/o CFG evaluation template for the B-model checkpoint.
-```
-
-## Training
-
-Latent Prior GAN, iMF-XL, nt=1.0, no CFG:
+## Setup
 
 ```bash
-cd /mnt/nfs/wenjie/Latent-Prior-GAN
-bash scripts/generated/sbatch_latent_prior_gan_xl_nt1_gan_only.sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Direct command:
+Training and full generation require CUDA. Place ImageNet in `data/imagenet/train/<class>/`. Supply original model weights separately; this repository contains no datasets or pretrained weights. The SD-VAE is loaded from `--vae_path`, the documented environment overrides, or Hugging Face. DINO, VGG, ConvNeXt, and LPIPS projection weights are also needed for continuous training. DINO/VGG/ConvNeXt can download their feature weights; supply the LPIPS projection weights through `LPIPS_VGG_CKPT` (see [setup details](docs/reproduction.md)).
+
+For iMF, put the **official PyTorch** weights in `checkpoints/imf/iMF-{B,M,L,XL}-2.pth`, or pass `--pretrained_imf_pytorch`. Converted iMF `.pt` files are unsupported. DMF/MeanFlow retain their native checkpoint formats. TiTok defaults to `checkpoints/titok/tokenizer_titok_l32.bin` and `generator_titok_l32.bin` (corresponding `b64` files for B64).
+
+## Train
 
 ```bash
-export SD_VAE_PATH=/mnt/nfs/wenjie/vae_assets/sd-vae-ft-mse
-export DINO_CKPT_PATH=/mnt/nfs/wenjie/torch_cache/hub/checkpoints/dino_deitsmall16_pretrain.pth
-export PYTHONPATH=/mnt/nfs/wenjie/Latent-Prior-GAN:$PYTHONPATH
+# LP-GAN: generation and paired CFG supervision.
+NPROC_PER_NODE=8 bash scripts/train_lpgan.sh --config configs/imf_b.yaml \
+  --dataset_dir data/imagenet --checkpoint_dir checkpoints/runs/imf_b
 
-/mnt/nfs/wenjie/FD-Loss/.venv/bin/python -m torch.distributed.run \
-  --standalone \
-  --nproc_per_node=8 \
-  post_train.py \
-  --config yaml/latent_prior_gan/imf_xl_nt1_gan_only.yaml
+# Adversarial-only ablation with the same frozen prior.
+NPROC_PER_NODE=8 bash scripts/train_pure_gan.sh --config configs/imf_b.yaml \
+  --dataset_dir data/imagenet --checkpoint_dir checkpoints/runs/imf_b_pure
 ```
 
-## Checkpoints
+Batch size is per GPU. The launchers use `torchrun`, including for a single GPU. Choose `configs/imf_m.yaml`, `imf_l.yaml`, or `imf_xl.yaml` for other scales. Explicit CLI values override YAML. Unknown or ignored historical fields fail validation. Generation and paired CFG can be controlled independently with `--no-use_cfg` and `--no-supervision_use_cfg`.
 
-Latent Prior GAN checkpoints follow the GAR-FID training format:
+DMF and MeanFlow additionally require their original source checkouts and weights; see [reproduction instructions](docs/reproduction.md). Resume a completed epoch using `--resume`. Restored optimizer learning rates take precedence; `--reset_resume_lr` explicitly applies new continuous-model learning rates. TiTok restores its decoder LR and advances the original epoch decay exactly once.
 
-```python
-{
-    "model": ...,          # DDP-unwrapped LatentPriorGenerator state dict
-    "optimizer": ...,
-    "discriminator": ...,
-    "optimizer_disc": ...,
-    "epoch": ...,
-    "global_step": ...,
-    "args": ...,
-}
+## TiTok token pools
+
+```bash
+# The same source indices and class labels are preserved in both pools.
+python precompute_titok_real_tokens.py --dataset_dir data/imagenet \
+  --tokenizer_name titok-vql32 --out pools/titok_real.npz
+python precompute_titok_generated_tokens.py --generator_name titok-L32 \
+  --num_samples 1281167 --label_pool pools/titok_real.npz \
+  --deterministic --seed 3407 --out pools/titok_generated.npz
+NPROC_PER_NODE=8 bash scripts/train_titok.sh \
+  --real_latent_pool pools/titok_real.npz \
+  --generated_latent_pool pools/titok_generated.npz \
+  --dataset_dir data/imagenet --checkpoint_dir checkpoints/runs/titok_l32
 ```
 
-The `model` key contains `tokenizer.*` weights, so existing GAR eval scripts can
-extract the post-trained decoder weights from it.
+Set `--num_samples` to the actual number of rows in the real pool. Generated pools carry `image_indices` as well as labels; training verifies source paths, class labels, center-crop metadata, and tokenizer/generator pairing. Streamed generation can resume with `--deterministic`; incompatible shards require `--restart`. `check_titok_pairing.py` provides a diagnostic re-encoding and image grid.
 
-During distributed training, the top-level Latent Prior GAN module is wrapped
-with DDP. The encoder and frozen iMF prior stay frozen; the decoder is optimized.
+## Generate and evaluate
 
-## External Artifacts
+```bash
+# Omit --decoder_checkpoint to evaluate the original decoder.
+NPROC_PER_NODE=8 bash scripts/eval_generation.sh --config configs/imf_b.yaml \
+  --decoder_checkpoint checkpoints/runs/imf_b/checkpoint-LP_GAN.pth.tar \
+  --num_samples 50000 --out_dir results/imf_b_adapted
 
-Large files are not part of the clean code checkout. Expected paths on the
-cluster are:
+# TiTok uses its registered eight sampling steps.
+NPROC_PER_NODE=8 bash scripts/eval_generation.sh --prior_family titok \
+  --generator_name titok-L32 --decoder_checkpoint checkpoints/runs/titok_l32/checkpoint-titok-lpg-epoch002.pth.tar \
+  --out_dir results/titok_l32_adapted
 
-```text
-/mnt/nfs/wenjie/IMF-GAP_V1/checkpoints/pytorch/iMF-XL-2.pt
-/mnt/nfs/wenjie/vae_assets/sd-vae-ft-mse/
-/mnt/nfs/wenjie/dataset/imagenet_idx/
-/mnt/nfs/wenjie/torch_cache/hub/checkpoints/dino_deitsmall16_pretrain.pth
+pip install -r requirements-eval.txt
+python eval_fid.py --protocol torch_fidelity \
+  --samples results/imf_b_adapted/samples.npz \
+  --reference /path/to/jit_in256_stats.npz --output results/imf_b_adapted/fid_torch.json
 ```
 
-Outputs should stay under:
+Use an actual saved checkpoint filename. Generation saves exactly indexed RGB PNGs, an `arr_0` uint8 NHWC NPZ, and a manifest with model, CFG, steps, and seeds. Existing nonempty output directories are refused. OpenAI evaluation uses `--protocol openai`, its TensorFlow dependency, and `VIRTUAL_imagenet256_labeled.npz`. **OpenAI and torch-fidelity numbers are different protocols and must be reported separately.**
 
-```text
-/mnt/nfs/wenjie/Latent-Prior-GAN/checkpoints/
-/mnt/nfs/wenjie/Latent-Prior-GAN/results/
-/mnt/nfs/wenjie/Latent-Prior-GAN/logs/
+## Code and validation
+
+`config.py` validates continuous runtime configuration; `models/registry.py` and the native/TiTok registries own model defaults. Model wrappers, losses, data pairing, training entrypoints, and evaluation are separate. [Migration and source provenance](docs/migration.md) explain compatibility with experimental checkpoints. [Reproduction status](docs/reproduction.md) distinguishes verified experiment evidence from unresolved result mappings. [Validation details](docs/validation.md) record the CPU checks and remaining GPU checks.
+
+```bash
+python -m unittest discover -s tests -v
 ```
 
-## Code Hygiene Rules
-
-- Follow the validated VQ-Transplant/GAR training template for GAN training.
-- Do not rewrite `main_worker` or `models/losses.py` with generated code.
-- Use `models/losses.py` only for the DINO-discriminator GAN objective.
-- Keep model/generation code in `models/model.py` and loss code in
-  `models/losses.py`.
-- Do not add duplicate directories or duplicate modules for analysis
-  experiments; extend the existing modules instead.
-- Do not commit generated images, NPZs, checkpoints, logs, or metric caches.
+CPU contract tests cover configuration, decoder gradients, loss updates, checkpoint compatibility, pairing, indexed sampling, and token-pool resume guards. They do not replace a CUDA training/evaluation run with the original large checkpoints. Upstream architectures and feature networks retain their source headers; model weights and external repositories remain subject to their upstream terms.

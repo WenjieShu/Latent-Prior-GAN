@@ -1,20 +1,15 @@
-# Minimal training dependencies for this clean package.
-# The cluster experiments currently use /mnt/nfs/wenjie/FD-Loss/.venv.
-
-torch
-torchvision
-diffusers
-huggingface_hub
-numpy
-Pillow
-PyYAML
-tqdm
-wandb
-
-# Optional: only needed if converting original JAX/Flax iMF checkpoints with
-# tools/convert_jax_to_pytorch.py. Not needed when using already converted
-# PyTorch checkpoints such as /mnt/nfs/wenjie/IMF-GAP_V1/checkpoints/pytorch/*.pt.
-jax
-jaxlib
-flax
-optax
+# Python >= 3.10 recommended. CUDA training; CPU supports contract tests.
+torch>=2.6,<3
+torchvision>=0.21,<1
+numpy>=1.26,<2
+diffusers>=0.30,<0.37
+huggingface_hub>=0.26,<1
+timm>=1.0,<2
+dictdot>=1.6,<2
+Pillow>=10
+PyYAML>=6
+tqdm>=4.66
+omegaconf>=2.3,<3
+transformers>=4.40,<5
+accelerate>=1.0,<2
+einops>=0.7

@@ -1,0 +1,11 @@
+prior_family: imf
+model_type: iMF-XL-2
+epochs: 5
+batch_size: 8
+lr: 1.0e-5
+disc_lr: 1.0e-5
+weight_decay: 1.0e-4
+disc_weight: 0.65
+supervision_noise_level: 0.2
+use_cfg: true
+supervision_use_cfg: true

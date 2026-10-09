@@ -1,0 +1,219 @@
+"""
+Wrapper for official iMeanFlow PyTorch model (.pth checkpoint).
+
+Uses imeantflow-torch's iMeanFlow and matches the evaluate.py interface.
+Shares the latent-prior interface used by training and generation evaluation.
+"""
+
+from typing import Optional, Tuple
+
+import torch
+import torch.nn as nn
+from models.registry import IMF_MODELS, model_defaults, validate_imf_checkpoint_path
+
+
+# Model name mapping: iMF-B-2 -> imfDiT_B_2
+MODEL_STR_MAP = {name: cfg['model_str'] for name, cfg in IMF_MODELS.items()}
+
+# CFG params from imeantflow-torch README
+CFG_PARAMS = {name: model_defaults(name) for name in IMF_MODELS}
+
+
+class BatchGenerator:
+    """Deterministic noise generator matching imeantflow-torch's tu.BatchGenerator."""
+    def __init__(self, device, seeds):
+        self.device = device
+        if hasattr(seeds, 'cpu'):
+            seeds = seeds.cpu().tolist()
+        self.generators = [
+            torch.Generator("cpu").manual_seed(int(s) % (1 << 32)) for s in seeds
+        ]
+
+    def randn(self, size, **kwargs):
+        assert size[0] == len(self.generators)
+        return torch.stack([
+            torch.randn(size[1:], generator=gen, **kwargs).to(self.device)
+            for gen in self.generators
+        ])
+
+    def randint(self, low, high, size, **kwargs):
+        assert size[0] == len(self.generators)
+        return torch.stack([
+            torch.randint(low, high, size=size[1:], generator=gen, **kwargs).to(self.device)
+            for gen in self.generators
+        ])
+
+
+class OfficialImfWrapper(nn.Module):
+    """
+    Wrapper for official iMeanFlow (.pth) providing DiffusionInterface-compatible API.
+    """
+
+    def __init__(self, model_type: str, checkpoint_path: str, imf_torch_path: Optional[str] = None):
+        super().__init__()
+        validate_imf_checkpoint_path(checkpoint_path)
+        from pathlib import Path
+        if not Path(checkpoint_path).is_file():
+            raise FileNotFoundError(f"Official iMF checkpoint not found: {checkpoint_path}")
+        self.model_type = model_type
+        self.checkpoint_path = checkpoint_path
+        self.latent_size = 32
+        self.num_classes = 1000
+
+        cfg = CFG_PARAMS[model_type]
+        self.omega = cfg['omega']
+        self.t_min = cfg['t_min']
+        self.t_max = cfg['t_max']
+
+        # Use embedded imf_torch (avoids 'models' namespace conflict)
+        from models.imf_torch.imf import iMeanFlow
+        model_str = MODEL_STR_MAP[model_type]
+        self.model = iMeanFlow(model_str, eval=True)
+        self._load_checkpoint()
+        self._is_loaded = True
+
+    def train(self, mode=True):
+        # The prior remains frozen when the enclosing decoder pipeline trains.
+        super().train(False)
+        return self
+
+    def _load_checkpoint(self):
+        print(f"[OfficialImfWrapper] Loading from {self.checkpoint_path}...")
+        ckpt = torch.load(self.checkpoint_path, map_location='cpu', weights_only=False)
+        if not isinstance(ckpt, dict) or not ckpt:
+            raise RuntimeError("Official iMF checkpoint must be a non-empty state dict")
+        if not all(key.startswith("net.") for key in ckpt):
+            raise RuntimeError(
+                "Official iMF checkpoint keys must start with 'net.': "
+                f"first keys={list(ckpt)[:3]}"
+            )
+        self.model.load_state_dict(ckpt, strict=True)
+        print(
+            f"[OfficialImfWrapper] Strictly loaded {len(ckpt)} tensors "
+            f"for {self.model_type}"
+        )
+
+    def to(self, device):
+        super().to(device)
+        self.model = self.model.to(device)
+        return self
+
+    def eval(self):
+        super().eval()
+        self.model.eval()
+        return self
+
+    @staticmethod
+    def add_noise(z: torch.Tensor, noise_level: float) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Flow matching: z_t = (1 - t) * z + t * noise"""
+        noise = torch.randn_like(z)
+        z_t = (1 - noise_level) * z + noise_level * noise
+        return z_t, noise
+
+    @torch.no_grad()
+    def generate(
+        self,
+        batch_size: int,
+        labels: Optional[torch.Tensor] = None,
+        num_steps: int = 1,
+        use_cfg: bool = True,
+        device: str = 'cuda',
+        generator: Optional[torch.Generator] = None,
+        seeds: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Generate latents from noise. Returns NCHW tensor (normalized latent)."""
+        omega = self.omega if use_cfg else 1.0
+        t_min = self.t_min if use_cfg else 0.0
+        t_max = self.t_max if use_cfg else 1.0
+
+        # Build seeds for BatchGenerator (match official evaluate.py: seeds = sample_idx ^ initial_seed)
+        if seeds is None:
+            seeds = torch.randint(
+                0, 1 << 31, (batch_size,), device=device, dtype=torch.int64
+            )
+            if torch.distributed.is_available() and torch.distributed.is_initialized():
+                seeds = seeds ^ (torch.distributed.get_rank() * 0x1F123BB5)
+        rng = BatchGenerator(device, seeds)
+
+        if labels is None:
+            labels = rng.randint(0, self.num_classes, (batch_size,))
+
+        z_gen = self.model.generate(
+            n_sample=batch_size,
+            rng=rng,
+            num_steps=num_steps,
+            omega=omega,
+            t_min=t_min,
+            t_max=t_max,
+            labels=labels,
+        )
+        return z_gen  # Already NCHW (B, 4, 32, 32), normalized latent
+
+    @torch.no_grad()
+    def denoise(
+        self,
+        z_noisy: torch.Tensor,
+        noise_level: float,
+        labels: Optional[torch.Tensor] = None,
+        num_steps: int = 1,
+        use_cfg: bool = True,
+    ) -> torch.Tensor:
+        """Denoise from z_noisy at noise_level. z_noisy is NCHW normalized latent."""
+        device = z_noisy.device
+        B = z_noisy.shape[0]
+        if labels is None:
+            labels = torch.randint(0, self.num_classes, (B,), device=device)
+
+        t_steps = torch.linspace(noise_level, 0.0, num_steps + 1, device=device)
+        omega_val = self.omega if use_cfg else 1.0
+        t_min_val = self.t_min if use_cfg else 0.0
+        t_max_val = self.t_max if use_cfg else 1.0
+        omega = torch.tensor(omega_val, dtype=z_noisy.dtype, device=device)
+        t_min = torch.tensor(t_min_val, dtype=z_noisy.dtype, device=device)
+        t_max = torch.tensor(t_max_val, dtype=z_noisy.dtype, device=device)
+
+        z_t = z_noisy
+        for i in range(num_steps):
+            z_t = self.model.sample_one_step(z_t, labels, i, t_steps, omega, t_min, t_max)
+        return z_t
+
+    @torch.no_grad()
+    def denoise_from_encoder_latent(
+        self,
+        z_real: torch.Tensor,
+        maximum_noise_level: float,
+        normalized: bool = False,
+        labels: Optional[torch.Tensor] = None,
+        num_steps: int = 1,
+        use_cfg: bool = False,
+        fixed_noise: bool = False,
+        minimum_noise_level: float = 0.0,
+    ) -> torch.Tensor:
+        device = z_real.device
+        if fixed_noise:
+            noise_level = float(maximum_noise_level)
+        else:
+            noise_level = float(
+                torch.empty((), device=device).uniform_(
+                    minimum_noise_level, maximum_noise_level
+                )
+            )
+
+        z_noisy, _ = self.add_noise(z_real, noise_level)
+        if normalized:
+            mean = z_noisy.mean(dim=(1, 2, 3), keepdim=True)
+            std = z_noisy.std(dim=(1, 2, 3), keepdim=True)
+            z_noisy = (z_noisy - mean) / (std + 1e-8)
+        else:
+            mean = std = None
+
+        z_denoised = self.denoise(
+            z_noisy,
+            noise_level,
+            labels=labels,
+            num_steps=num_steps,
+            use_cfg=use_cfg,
+        )
+        if normalized:
+            z_denoised = z_denoised * std + mean
+        return z_denoised

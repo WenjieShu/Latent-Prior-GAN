@@ -12,7 +12,7 @@ def hf_offline_mode() -> bool:
     return _env_flag("HF_HUB_OFFLINE") or _env_flag("TRANSFORMERS_OFFLINE")
 
 
-def resolve_sd_vae_source(vae_type: str = "mse") -> Tuple[str, Dict[str, object], str]:
+def resolve_sd_vae_source(vae_type: str = "mse", explicit_path: str = "") -> Tuple[str, Dict[str, object], str]:
     """
     Resolve where Stable Diffusion VAE should be loaded from.
 
@@ -20,6 +20,11 @@ def resolve_sd_vae_source(vae_type: str = "mse") -> Tuple[str, Dict[str, object]
     1. Explicit local path via env vars.
     2. HF repo id (online or local cache, depending on offline flags).
     """
+    if explicit_path:
+        path = Path(explicit_path).expanduser()
+        if not path.is_dir():
+            raise FileNotFoundError(f"VAE directory not found: {path}")
+        return str(path), {"local_files_only": True}, f"[HFPaths] Loading SD VAE from {path}"
     env_candidates = (
         "SD_VAE_PATH",
         "IMF_SD_VAE_PATH",

@@ -1,0 +1,290 @@
+[
+  {
+    "file": "train_pure_gan.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "train_pure_gan.py",
+    "source_sha256": "871d02c3f0e25f888a27c37395eef1008e6a160f0e2d8d4f0ad529fe034e1e95"
+  },
+  {
+    "file": "train_lpgan.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "train_supervised_gan.py",
+    "source_sha256": "cff5193e8f1063bd6986f0aaf4e76f983692633a59a527442d85974252405417"
+  },
+  {
+    "file": "models/model.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/model.py",
+    "source_sha256": "d687cdfd7faa323f39d1a3397dbff57632f8d9e151c21ffb53fb136ffac747a7"
+  },
+  {
+    "file": "models/tokenizer.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/tokenizer.py",
+    "source_sha256": "3420fa9221029c9911791354b68e8ad14357e74722130245743e3e918d647d44"
+  },
+  {
+    "file": "models/imf_official.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/imf_official.py",
+    "source_sha256": "fbd59c70286216775f0a3244ed4e545ec62ec7170f92d87dcc2700d517f6e45a"
+  },
+  {
+    "file": "models/pure_gan_losses.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/pure_gan_losses.py",
+    "source_sha256": "58fe5a3986dc5702c6cfc9677f77683eb021e638505bcf12146c734c6e85e51a"
+  },
+  {
+    "file": "models/supervised_gan_losses.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/supervised_gan_losses.py",
+    "source_sha256": "eab4b36a7355ae7a72deac0fbee9491de5da3733672c1ec641f184eea74ebcbc"
+  },
+  {
+    "file": "models/lpips.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/lpips.py",
+    "source_sha256": "21026975db5dd3cf9a97920045e129b7ee2c7d040e5dcedc3ad6353240972bb0"
+  },
+  {
+    "file": "models/perceptual_loss.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/perceptual_loss.py",
+    "source_sha256": "bda77057dbd208e325ca7fc35d0fd905e447c46f398bed89a77a62b8f7daabca"
+  },
+  {
+    "file": "models/priors/alphaflow.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/priors/alphaflow.py",
+    "source_sha256": "5e51e73853ded6179957af507d4bda55cda74ac4d22f577ac3ae0b4d762ae66a"
+  },
+  {
+    "file": "models/priors/dmf.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/priors/dmf.py",
+    "source_sha256": "94f4d8ebf331a65f188cb57f520834655d036f94522438aa0b5ee40f183c9197"
+  },
+  {
+    "file": "models/priors/latent_bridge.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/priors/latent_bridge.py",
+    "source_sha256": "e5af72514362b2893bce6905905468de25b80046421653d4e031afb181df9489"
+  },
+  {
+    "file": "utils/checkpointing.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "utils/checkpointing.py",
+    "source_sha256": "33ba9d1db8839bc7102089839fb8e296310ac792924378e7ca473a0e73d72d98"
+  },
+  {
+    "file": "utils/hf_paths.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "utils/hf_paths.py",
+    "source_sha256": "eb982aecf676ea8b1800f7de55d78820cce240ea170b2aa0a7e3a5757c62b70a"
+  },
+  {
+    "file": "utils/util.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "utils/util.py",
+    "source_sha256": "ba253b88e7833881492b6bf91d205b193dce2e1132e260e55b44db92e8056ac8"
+  },
+  {
+    "file": "utils/diff_aug.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "utils/diff_aug.py",
+    "source_sha256": "c5c9ac4e8f1779bc0fa3842038220b536c0e5e015465e7e429fc00c491b7c1c9"
+  },
+  {
+    "file": "utils/distributed.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "utils/distributed.py",
+    "source_sha256": "512bdba82e7df88e1d11d9fa0f1c212290094a9c77a6ae611311efd830c9cbf3"
+  },
+  {
+    "file": "utils/__init__.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "utils/__init__.py",
+    "source_sha256": "9798b2679e211edf53ff0595520a8bbb3fa0d52e98dd19b72abb7beefd8b3fdb"
+  },
+  {
+    "file": "data/augmentation.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "data/augmentation.py",
+    "source_sha256": "b84707fcb69873261c5777e2e04ce6e0758ce7036b79fa3a1dc7c7be5f8dc576"
+  },
+  {
+    "file": "data/dataloader.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "data/dataloader.py",
+    "source_sha256": "811ca44d28b6ee972cd141b796a242454ac9bb954b3d5be3d9826353101b458c"
+  },
+  {
+    "file": "data/__init__.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "data/__init__.py",
+    "source_sha256": "88f96b173b8681eedfae7d71d34f109de9eb2aaf53cc7905d6a77b02bbd92031"
+  },
+  {
+    "file": "models/imf_torch/imfDiT.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/imf_torch/imfDiT.py",
+    "source_sha256": "9f22f41bfcc8f3deb626269b3665b47708ded6d875a6c3e4289c216a85000efc"
+  },
+  {
+    "file": "models/imf_torch/__init__.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/imf_torch/__init__.py",
+    "source_sha256": "4f9cce2ce6bada0e46fd5218539fbf5a434aea2ddcc9c8eda4e1f30573fac729"
+  },
+  {
+    "file": "models/imf_torch/imf.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/imf_torch/imf.py",
+    "source_sha256": "a2d247717a4d93036a087429956a24c8caffba4c49d3582d37054c81bc9c7831"
+  },
+  {
+    "file": "models/imf_torch/embedder.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/imf_torch/embedder.py",
+    "source_sha256": "5e63e4045ddaa785b03f609edfa0eadbf580a0ab3e3ffe1420c51eb18f06f594"
+  },
+  {
+    "file": "models/imf_torch/torch_models.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/imf_torch/torch_models.py",
+    "source_sha256": "a4369cee16b9e812717170c844a9882b1c31fc1b5afe016b3aed06e74c290aa4"
+  },
+  {
+    "file": "models/discriminators/__init__.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/discriminators/__init__.py",
+    "source_sha256": "20f9cdb74b9c51b3920a2d23dadd31a4c34f159470b6965f7898e4c8e97b4ad9"
+  },
+  {
+    "file": "models/discriminators/discriminator_dino.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/discriminators/discriminator_dino.py",
+    "source_sha256": "b2dd79243daf3ca2517f539f4169586f1612abe3b8e6b18efc89ba34774976ae"
+  },
+  {
+    "file": "models/discriminators/dist.py",
+    "source_snapshot": "continuous-external-2026-10-09",
+    "source_file": "models/discriminators/dist.py",
+    "source_sha256": "27df41bf2a1ecabe23a282748fe3e148298c079e52b6bdca1357ecb84fc2096a"
+  },
+  {
+    "file": "train_titok_lpgan.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "train_titok_latent_prior_gan.py",
+    "source_sha256": "09a2e59927baae33db43e8ab41194602e88eb091cfba9d7fcbb4f8485440fcef"
+  },
+  {
+    "file": "precompute_titok_real_tokens.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "precompute_ar_latents.py",
+    "source_sha256": "187b50632a2cb8e96babbf94948e459ed8e22a150cf11b467ac62303c6ada673"
+  },
+  {
+    "file": "precompute_titok_generated_tokens.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "precompute_latents.py",
+    "source_sha256": "6f1d1045f0b71c2bc580eaab4010408da11e0b766c3ed282d88308ee3d368d95"
+  },
+  {
+    "file": "check_titok_pairing.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "check_ar_pairing.py",
+    "source_sha256": "996bcd52cc6b8cdda47e356556cd91088dbc638dca5bf71a63ea0d85a1c97b57"
+  },
+  {
+    "file": "models/titok_model.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/ar_latent_prior.py",
+    "source_sha256": "04e2f2a65e1e6d3b1e0c33c913d50cc2c2424d6be365aa114c89ec2d5c37608c"
+  },
+  {
+    "file": "models/titok_losses.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/ar_pairwise_gan_losses.py",
+    "source_sha256": "04aaf3cf2c4a17b9b224820736ba04e47736abd1ea56fa95f9af3a641ffc57b6"
+  },
+  {
+    "file": "models/ckpt_load.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/ckpt_load.py",
+    "source_sha256": "1fbae9926531d473d19fbc1d31b2f3b6db997c6cf17bf9a36a802eecac7ef904"
+  },
+  {
+    "file": "data/titok_dataset.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "data/ar_latent_dataset.py",
+    "source_sha256": "2a3f370956082057e8874cd71746123360df7d371f053ba75121f698b2c606a2"
+  },
+  {
+    "file": "metric/evaluator.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "metric/evaluator.py",
+    "source_sha256": "7e3bfb2056409866c8196f50244205339329038f5df7aea1e045fe03b2a4f1f8"
+  },
+  {
+    "file": "models/titok/registry.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/titok/registry.py",
+    "source_sha256": "be468d5a2a8ba8266e579f7890a1f2041bfe5c72cebcefe04973bc19ceb48c4c"
+  },
+  {
+    "file": "models/titok/__init__.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/titok/__init__.py",
+    "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "models/titok/tokenizer_arch.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/titok/tokenizer_arch.py",
+    "source_sha256": "1f3393aca16e6eed9d8118df8c6d62d4e7a451e43cc4d2a383e2b142d1f83f1a"
+  },
+  {
+    "file": "models/titok/tokenizer.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/titok/tokenizer.py",
+    "source_sha256": "b20a006a5d90603f661a5cd84eb6ea0e27480afd9e2c67316ef49f5d1c2767f8"
+  },
+  {
+    "file": "models/titok/generator.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/titok/generator.py",
+    "source_sha256": "cd1c268a805ca47cc6d18dadefb95d59a8d8e7f1a40e1a7654b173c87dfb0577"
+  },
+  {
+    "file": "models/titok/generator_arch.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/titok/generator_arch.py",
+    "source_sha256": "5d5e2a4b22f7f9b8ad1283ab4802a6839e1365139bfac1b57bdb0817771b8ddd"
+  },
+  {
+    "file": "models/discrete_generator.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/generator.py",
+    "source_sha256": "3a04c62ca0e67e5b431d8c3068579b23c9e47521a3a1608a4ed5ad039679d101"
+  },
+  {
+    "file": "models/discrete_tokenizer.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "models/tokenizer.py",
+    "source_sha256": "ee73a5e8c66322f151ebe91d2783142b91842fda7a0ee6471d8710b7847c8dda"
+  },
+  {
+    "file": "utils/titok_distributed.py",
+    "source_snapshot": "titok-validated-2026-10-09",
+    "source_file": "utils/distributed.py",
+    "source_sha256": "f77d3a1c8228de761066dc83cc4513b3bfcf37e41f35f4164c61c5751e171200"
+  },
+  {
+    "file": "metric/fidelity.py",
+    "source_snapshot": "gar-main-416de7b",
+    "source_file": "src/metric/fidelity.py",
+    "source_sha256": "1b2ae942cf1a7b713d69409e1a53cd2b90b652d87c10ea399abde8a874752438"
+  }
+]
