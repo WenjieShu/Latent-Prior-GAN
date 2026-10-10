@@ -68,11 +68,12 @@ class ConfigContracts(unittest.TestCase):
     def test_distinct_training_names_and_examples(self):
         a = config.parse_arg([], prepare=False)
         b = config.parse_arg(["--no-supervision_use_cfg"], prepare=False)
-        c = config.parse_arg([], objective="pure", prepare=False)
+        c = config.parse_arg(["--wo_ps"], prepare=False)
         self.assertEqual(len({a.saver_name_pre, b.saver_name_pre, c.saver_name_pre}), 3)
         for path in Path("configs").glob("*.yaml"):
             with self.subTest(path=path):
-                config.parse_arg(["--config", str(path)], prepare=False)
+                cli = ["--real_latent_pool", "real.npz", "--generated_latent_pool", "gen.npz"] if path.name.startswith("titok") else []
+                config.parse_arg(["--config", str(path), *cli], prepare=False)
 
     def test_titok_manifest_steps_and_model_identity(self):
         from eval_generation import parse_args
@@ -262,16 +263,16 @@ class LossGradientContracts(unittest.TestCase):
             return (a - b).abs().mean()
 
     def test_generator_then_discriminator_has_no_decoder_gradient_leak(self):
-        import models.pure_gan_losses as pure
-        import models.supervised_gan_losses as supervised
+        import models.wo_ps_losses as wo_ps
+        import models.paired_supervision_losses as w_ps
         import models.titok_losses as titok
         args = config.parse_arg([], prepare=False)
-        for name, module in (("pure", pure), ("supervised", supervised), ("titok", titok)):
+        for name, module in (("wo_ps", wo_ps), ("w_ps", w_ps), ("titok", titok)):
             with self.subTest(objective=name), patch.object(module, "DinoDiscriminator", self.Discriminator), patch.object(module, "DiffAugment", lambda x, **kw: x):
-                if name == "supervised":
+                if name == "w_ps":
                     with patch.object(module, "PerceptualLoss", self.Perceptual):
                         loss_module = module.SupervisedDinoGANLoss(args)
-                elif name == "pure":
+                elif name == "wo_ps":
                     loss_module = module.DinoGANLoss(args)
                 else:
                     loss_module = module.ARPairwiseGANLoss()
@@ -283,9 +284,9 @@ class LossGradientContracts(unittest.TestCase):
                     target = torch.randn(2, 3, 8, 8)
                     generated = decoder(torch.randn_like(target))
                     paired = decoder(target * .8)
-                    if name == "pure":
+                    if name == "wo_ps":
                         g_loss, _ = loss_module(target, generated, optimizer_idx=0)
-                    elif name == "supervised":
+                    elif name == "w_ps":
                         g_loss, _ = loss_module(target, generated, paired, optimizer_idx=0, last_layer=decoder.weight)
                     else:
                         g_loss, _ = loss_module(paired, generated, target, optimizer_idx=0, last_layer=decoder.weight)
@@ -295,9 +296,9 @@ class LossGradientContracts(unittest.TestCase):
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
                     disc_optimizer.zero_grad(set_to_none=True)
-                    if name == "pure":
+                    if name == "wo_ps":
                         d_loss, _ = loss_module(target, generated, optimizer_idx=1)
-                    elif name == "supervised":
+                    elif name == "w_ps":
                         d_loss, _ = loss_module(target, generated, paired, optimizer_idx=1)
                     else:
                         d_loss, _ = loss_module(paired.detach(), generated.detach(), target, optimizer_idx=1)

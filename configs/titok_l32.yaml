@@ -1,0 +1,13 @@
+prior_family: titok
+tokenizer_name: titok-vql32
+epochs: 5
+batch_size: 2
+lr: 1.0e-5
+disc_lr: 1.0e-5
+lr_decay: 0.5
+min_lr: 1.0e-6
+weight_decay: 0.0
+pairwise_weight: 1.0
+disc_weight: 1.0
+disc_cr_loss_weight: 0.1
+seed: 3407

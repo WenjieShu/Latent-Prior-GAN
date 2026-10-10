@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec bash "$repo_root/scripts/torchrun.sh" train_pure_gan.py "$@"
+exec bash "$repo_root/scripts/torchrun.sh" train.py "$@"

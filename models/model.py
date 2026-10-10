@@ -62,7 +62,7 @@ class LatentPriorGenerator(nn.Module):
         return self.tokenizer.decode(latents).clamp(-1, 1)
 
 
-    ## pure gan mode / supervised gan mode
+    # LP-GANs w/o PS uses generation only; full LP-GANs also returns paired outputs.
     def forward(self, x=None, labels=None):
         assert labels != None
         if x is None:
@@ -70,7 +70,7 @@ class LatentPriorGenerator(nn.Module):
             return x_gen
         return self.generation_and_supervision(x, labels)
 
-    ## supervised gan mode
+    # Paired supervision (PS).
     def generation_and_supervision(self, x, labels=None):
         assert labels != None
         x_gen  = self.decode(self.sample_latents(labels))

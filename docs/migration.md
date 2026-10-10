@@ -6,9 +6,9 @@ This release reorganizes LP-GAN's continuous and TiTok experimental paths using 
 
 | Experimental name | Release entrypoint |
 |:--|:--|
-| `train_supervised_gan.py` | `train_lpgan.py` |
-| `train_pure_gan.py` | `train_pure_gan.py` |
-| `train_titok_latent_prior_gan.py` | `train_titok_lpgan.py` |
+| `train_supervised_gan.py` | `train.py` (LP-GANs w/ PS, default) |
+| `train_pure_gan.py` | `train.py --wo_ps` (LP-GANs w/o PS) |
+| `train_titok_latent_prior_gan.py` | `train.py --config configs/titok_l32.yaml` |
 | `precompute_ar_latents.py` | `precompute_titok_real_tokens.py` |
 | `precompute_latents.py` | `precompute_titok_generated_tokens.py` |
 | `check_ar_pairing.py` | `check_titok_pairing.py` |
@@ -16,11 +16,15 @@ This release reorganizes LP-GAN's continuous and TiTok experimental paths using 
 
 Machine-specific Slurm scripts, debug runs, converted JAX iMF code, unsupported prior branches, and unrelated FD post-training variants are absent from the release. Model wrappers retain the parameter nesting expected by historical checkpoints.
 
+Training now has one public entrypoint and one launcher, `scripts/train.sh`. PS means paired supervision, following the paper. Continuous and TiTok loops retain their separate experimental update and LR policies inside `train.py`. Family-specific configuration rejects incompatible options. The old TiTok `--max_steps` option is now the common `--debug_steps`; old entrypoint filenames are retained only in provenance records. Loss modules are named `paired_supervision_losses.py` and `wo_ps_losses.py`, with their equations unchanged.
+
 ## Source snapshots
 
 The continuous path comes from the audited `Latent-Prior-GAN-External` experimental snapshot, including official iMF and validated DMF/MeanFlow adapters. The TiTok path comes from the audited `FD_AR-main` snapshot: its 76-file local source matched the corresponding server source byte for byte. The torch-fidelity evaluator follows cleaned GAR. These source snapshots were audited on 2026-10-09; a snapshot is not proof of an exact historical run's Git revision.
 
 [source_manifest.json](source_manifest.json) records selected imported paths and their **source** SHA256 hashes. Edited release files naturally differ from those source hashes. It records provenance rather than serving as a hash lock for this release. Upstream architecture headers and copyright notices have been retained. Upstream models, feature weights, and external repositories have their own terms; this cleanup does not assign them a new license.
+
+The README overview and pipeline figures were copied from `figs/main/lp_figure1.pdf` and `lp_figure2.pdf` in the local `_ICLR_2027__Latent_Prior_GANs (2)` paper snapshot; PNGs are rendered previews of those PDFs. Result tables reproduce that paper snapshot rather than new validation runs.
 
 ## Compatibility and fixes
 

@@ -20,6 +20,20 @@ def validate_epoch_resume(checkpoint):
         raise ValueError("Partial-epoch debug checkpoints support evaluation only; resume from a completed epoch")
 
 
+def validate_training_objective(checkpoint, args):
+    """Accept legacy objective labels while preventing cross-objective resume."""
+    saved = checkpoint.get("args", {})
+    if not isinstance(saved, dict):
+        saved = vars(saved)
+    saved_wo_ps = saved.get("wo_ps")
+    if saved_wo_ps is None:
+        # Historical labels are used only for checkpoint compatibility.
+        objectives = {"pure": True, "supervised": False, "wo_ps": True, "w_ps": False}
+        saved_wo_ps = objectives.get(saved.get("objective"))
+    if saved_wo_ps is not None and saved_wo_ps != args.wo_ps:
+        raise ValueError("Resume paired-supervision setting differs; select the checkpoint's --wo_ps setting")
+
+
 def advance_decoder_lr(optimizer, decay, minimum):
     for group in optimizer.param_groups:
         group["lr"] = max(minimum, group["lr"] * decay)

@@ -1,12 +1,12 @@
 [
   {
-    "file": "train_pure_gan.py",
+    "file": "train.py",
     "source_snapshot": "continuous-external-2026-10-09",
     "source_file": "train_pure_gan.py",
     "source_sha256": "871d02c3f0e25f888a27c37395eef1008e6a160f0e2d8d4f0ad529fe034e1e95"
   },
   {
-    "file": "train_lpgan.py",
+    "file": "train.py",
     "source_snapshot": "continuous-external-2026-10-09",
     "source_file": "train_supervised_gan.py",
     "source_sha256": "cff5193e8f1063bd6986f0aaf4e76f983692633a59a527442d85974252405417"
@@ -30,13 +30,13 @@
     "source_sha256": "fbd59c70286216775f0a3244ed4e545ec62ec7170f92d87dcc2700d517f6e45a"
   },
   {
-    "file": "models/pure_gan_losses.py",
+    "file": "models/wo_ps_losses.py",
     "source_snapshot": "continuous-external-2026-10-09",
     "source_file": "models/pure_gan_losses.py",
     "source_sha256": "58fe5a3986dc5702c6cfc9677f77683eb021e638505bcf12146c734c6e85e51a"
   },
   {
-    "file": "models/supervised_gan_losses.py",
+    "file": "models/paired_supervision_losses.py",
     "source_snapshot": "continuous-external-2026-10-09",
     "source_file": "models/supervised_gan_losses.py",
     "source_sha256": "eab4b36a7355ae7a72deac0fbee9491de5da3733672c1ec641f184eea74ebcbc"
@@ -174,7 +174,7 @@
     "source_sha256": "27df41bf2a1ecabe23a282748fe3e148298c079e52b6bdca1357ecb84fc2096a"
   },
   {
-    "file": "train_titok_lpgan.py",
+    "file": "train.py",
     "source_snapshot": "titok-validated-2026-10-09",
     "source_file": "train_titok_latent_prior_gan.py",
     "source_sha256": "09a2e59927baae33db43e8ab41194602e88eb091cfba9d7fcbb4f8485440fcef"

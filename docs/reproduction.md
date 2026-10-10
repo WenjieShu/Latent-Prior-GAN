@@ -25,7 +25,7 @@ DMF uses its original source checkout, not a port of the sampler. The checkout m
 
 ```bash
 pip install -r requirements-external-priors.txt
-NPROC_PER_NODE=8 bash scripts/train_lpgan.sh --config configs/dmf_xl.yaml \
+NPROC_PER_NODE=8 bash scripts/train.sh --config configs/dmf_xl.yaml \
   --prior_repo_path /path/to/DMF --prior_checkpoint /path/to/dmf_xl.pt \
   --vae_path /path/to/sd-vae-ft-mse --dataset_dir /path/to/imagenet \
   --checkpoint_dir checkpoints/runs/dmf_xl
@@ -34,7 +34,7 @@ NPROC_PER_NODE=8 bash scripts/train_lpgan.sh --config configs/dmf_xl.yaml \
 MeanFlow uses the validated AlphaFlow source/snapshot infrastructure. The checkout must contain `src/inference.py` and `src/training/network_utils.py`. Supply the model snapshot, native EMA VAE snapshot, and its matching diffusers VAE directory. `--vae_path` is also passed to the upstream loader through `ALPHAFLOW_SD_VAE_EMA_PATH`; without it the adapter follows the original local-directory convention. The adapter verifies tensor identity between the loaded native VAE and tokenizer before releasing the duplicate VAE. Native one-step trajectory sampling, CFG, and latent normalization are preserved.
 
 ```bash
-NPROC_PER_NODE=8 bash scripts/train_lpgan.sh --config configs/meanflow_xl.yaml \
+NPROC_PER_NODE=8 bash scripts/train.sh --config configs/meanflow_xl.yaml \
   --prior_repo_path /path/to/AlphaFlow --prior_checkpoint /path/to/meanflow_snapshot.pt \
   --prior_vae_checkpoint /path/to/ema_vae_snapshot.pt \
   --vae_path /path/to/sd-vae-ft-ema --dataset_dir /path/to/imagenet \
@@ -47,7 +47,7 @@ The optional dependency file covers the audited snapshot-loader imports. Native 
 
 All objectives retain AdamW betas `(0.9, 0.95)`, clipping, augmentation, adaptive adversarial weighting where applicable, DINO discriminator, LeCAM, consistency regularization, and G-before-D order. Continuous objectives preserve random crop/flip for source images. TiTok source images use the same ADM center crop as their cached tokens.
 
-The continuous paired loss is `MSE + perceptual + adaptive_weight * disc_weight * hinge_G`. The historical `gan_weight`, `rec_weight`, and `lpips_weight` did not control that equation and are absent from the public configuration. The pure-GAN generator loss is unweighted hinge; its `disc_weight` controls the discriminator term. These experimental choices have been preserved.
+The continuous paired loss is `MSE + perceptual + adaptive_weight * disc_weight * hinge_G`. The historical `gan_weight`, `rec_weight`, and `lpips_weight` did not control that equation and are absent from the public configuration. The LP-GANs w/o PS generator loss is unweighted hinge; its `disc_weight` controls the discriminator term. These experimental choices have been preserved.
 
 Completed-epoch resume restores model, discriminator, both optimizers, epoch and step counts. New checkpoints also save LeCAM EMA. Old checkpoints without EMA restart that statistic. Continuous restored learning rates take priority over CLI values; use `--reset_resume_lr --lr ... --disc_lr ...` to change them intentionally. Some historical iMF L/XL and MeanFlow resumed runs used optimizer rates of `2e-6`, although their launch/config rates differed.
 

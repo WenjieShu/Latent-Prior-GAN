@@ -1,4 +1,4 @@
-"""Continuous-prior training arguments; model defaults live in registries."""
+"""LP-GANs training arguments; model defaults live in registries."""
 
 import argparse
 import json
@@ -9,68 +9,93 @@ from pathlib import Path
 from models.registry import IMF_MODELS, resolve_continuous_defaults
 
 
-def build_parser():
-    p = argparse.ArgumentParser(description="Train an LP-GAN decoder on a frozen latent prior")
+def build_parser(family="imf"):
+    titok = family == "titok"
+    p = argparse.ArgumentParser(description="Train LP-GANs; --wo_ps selects LP-GANs w/o paired supervision (PS). Use --prior_family titok --help for token-pool options.")
     p.add_argument("--config", default="", help="YAML defaults; explicit CLI values take precedence")
     p.add_argument("--dataset_dir", default="data/imagenet")
     p.add_argument("--dataset_name", default="ImageNet", choices=["ImageNet"])
-    p.add_argument("--batch_size", type=int, default=8, help="per GPU")
+    p.add_argument("--batch_size", type=int, default=2 if titok else 8, help="per GPU")
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--resolution", type=int, default=256, choices=[256])
-    p.add_argument("--prior_family", default="imf", choices=["imf", "dmf", "meanflow"])
-    p.add_argument("--model_type", default="iMF-B-2", choices=list(IMF_MODELS))
-    p.add_argument("--latent_size", type=int, default=32, choices=[32])
-    p.add_argument("--pretrained_imf_pytorch", default="", help="official iMF .pth")
-    p.add_argument("--prior_repo_path", default="", help="native DMF or AlphaFlow/MeanFlow source checkout")
-    p.add_argument("--prior_checkpoint", default="")
-    p.add_argument("--prior_vae_checkpoint", default="", help="MeanFlow native EMA VAE snapshot")
-    p.add_argument("--prior_dtype", default="fp32", choices=["fp32", "bf16"])
-    p.add_argument("--vae_type", default=None, choices=["mse", "ema"])
-    p.add_argument("--vae_path", default="", help="local diffusers VAE directory; otherwise SD_VAE_PATH or HF")
-    p.add_argument("--decoder_init", default="pretrained", choices=["pretrained", "random"])
-    p.add_argument("--num_steps", type=int, default=1)
-    p.add_argument("--use_cfg", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--cfg_omega", type=float, default=None)
-    p.add_argument("--cfg_t_min", type=float, default=None)
-    p.add_argument("--cfg_t_max", type=float, default=None)
-    p.add_argument("--supervision_noise_level", type=float, default=0.2)
-    p.add_argument("--supervision_num_steps", type=int, default=1)
-    p.add_argument("--supervision_use_cfg", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--supervision_normalized", action="store_true")
+    p.add_argument("--prior_family", default=family, choices=["imf", "dmf", "meanflow", "titok"])
+    p.add_argument("--wo_ps", action=argparse.BooleanOptionalAction, default=False,
+                   help="LP-GANs w/o PS ablation (validated continuous-prior path)")
+    if titok:
+        group = p.add_argument_group("TiTok token pools and decoder")
+        group.add_argument("--real_latent_pool", default="")
+        group.add_argument("--generated_latent_pool", default="")
+        group.add_argument("--tokenizer_name", default="titok-vql32", choices=["titok-vql32", "titok-vqb64"])
+        group.add_argument("--tokenizer_ckpt_path", default="")
+        group.add_argument("--lr_decay", type=float, default=0.5)
+        group.add_argument("--min_lr", type=float, default=1e-6)
+        group.add_argument("--pairwise_weight", type=float, default=1.0)
+    else:
+        group = p.add_argument_group("Continuous latent prior and paired supervision")
+        group.add_argument("--model_type", default="iMF-B-2", choices=list(IMF_MODELS))
+        group.add_argument("--latent_size", type=int, default=32, choices=[32])
+        group.add_argument("--pretrained_imf_pytorch", default="", help="official iMF .pth")
+        group.add_argument("--prior_repo_path", default="", help="native DMF or AlphaFlow/MeanFlow source checkout")
+        group.add_argument("--prior_checkpoint", default="")
+        group.add_argument("--prior_vae_checkpoint", default="", help="MeanFlow native EMA VAE snapshot")
+        group.add_argument("--prior_dtype", default="fp32", choices=["fp32", "bf16"])
+        group.add_argument("--vae_type", default=None, choices=["mse", "ema"])
+        group.add_argument("--vae_path", default="", help="local diffusers VAE directory; otherwise SD_VAE_PATH or HF")
+        group.add_argument("--decoder_init", default="pretrained", choices=["pretrained", "random"])
+        group.add_argument("--num_steps", type=int, default=1)
+        group.add_argument("--use_cfg", action=argparse.BooleanOptionalAction, default=True)
+        group.add_argument("--cfg_omega", type=float, default=None)
+        group.add_argument("--cfg_t_min", type=float, default=None)
+        group.add_argument("--cfg_t_max", type=float, default=None)
+        group.add_argument("--supervision_noise_level", type=float, default=0.2)
+        group.add_argument("--supervision_num_steps", type=int, default=1)
+        group.add_argument("--supervision_use_cfg", action=argparse.BooleanOptionalAction, default=True)
+        group.add_argument("--supervision_normalized", action="store_true")
+        group.add_argument("--reset_resume_lr", action="store_true", help="after restoring optimizer states, apply --lr/--disc_lr")
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--debug_steps", type=int, default=0)
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--disc_lr", type=float, default=1e-5)
-    p.add_argument("--weight_decay", type=float, default=1e-4)
-    p.add_argument("--disc_weight", type=float, default=0.65)
+    p.add_argument("--weight_decay", type=float, default=0.0 if titok else 1e-4)
+    p.add_argument("--disc_weight", type=float, default=1.0 if titok else 0.65)
     p.add_argument("--lecam_loss_weight", type=float, default=0.001)
-    p.add_argument("--disc_cr_loss_weight", type=float, default=4.0)
+    p.add_argument("--disc_cr_loss_weight", type=float, default=0.1 if titok else 4.0)
     p.add_argument("--log_interval", type=int, default=50)
     p.add_argument("--save_interval", type=int, default=1)
     p.add_argument("--resume", default="")
-    p.add_argument("--reset_resume_lr", action="store_true", help="after restoring optimizer states, apply --lr/--disc_lr")
     p.add_argument("--checkpoint_dir", default="checkpoints/runs")
     p.add_argument("--results_dir", default="results")
     p.add_argument("--yaml_dir", default="runs/configs")
     p.add_argument("--saver_name_pre", default="")
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--use_wandb", action="store_true")
-    p.add_argument("--wandb_project", default="Latent-Prior-GAN")
-    p.add_argument("--wandb_run_name", default="")
-    p.add_argument("--dist-backend", default="nccl")
+    p.add_argument("--seed", type=int, default=3407 if titok else 42)
+    if not titok:
+        p.add_argument("--use_wandb", action="store_true")
+        p.add_argument("--wandb_project", default="Latent-Prior-GAN")
+        p.add_argument("--wandb_run_name", default="")
+        p.add_argument("--dist-backend", default="nccl")
     p.add_argument("--local-rank", "--local_rank", type=int, default=-1)
     return p
 
 
-def parse_arg(argv=None, objective="supervised", prepare=True):
-    p = build_parser()
-    initial = p.parse_args(argv)
+def parse_arg(argv=None, prepare=True):
+    # Resolve the family before constructing its argument surface. This keeps
+    # TiTok-only and continuous-only settings from being silently ignored.
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument("--config", default="")
+    selector.add_argument("--prior_family", default=None)
+    initial, _ = selector.parse_known_args(argv)
+    values = {}
     if initial.config:
         import yaml
         with open(initial.config, encoding="utf-8") as f:
             values = yaml.safe_load(f) or {}
         if not isinstance(values, dict):
             raise ValueError("YAML config must be a mapping")
+    family = initial.prior_family or values.get("prior_family", "imf")
+    if family not in ("imf", "dmf", "meanflow", "titok"):
+        raise ValueError(f"Unknown prior family: {family}")
+    p = build_parser(family)
+    if values:
         actions = {a.dest: a for a in p._actions}
         unknown = set(values) - (set(actions) - {"help", "config"})
         if unknown:
@@ -94,31 +119,40 @@ def parse_arg(argv=None, objective="supervised", prepare=True):
                 raise ValueError(f"Invalid YAML choice for {name}: {value}")
         p.set_defaults(**values)
     args = p.parse_args(argv)
-    if (args.cfg_t_min is None) != (args.cfg_t_max is None):
-        raise ValueError("CFG interval overrides require both endpoints")
-    resolve_continuous_defaults(args)
+    if args.prior_family != "titok":
+        if (args.cfg_t_min is None) != (args.cfg_t_max is None):
+            raise ValueError("CFG interval overrides require both endpoints")
+        resolve_continuous_defaults(args)
     validate_args(args)
-    args.objective = objective
+    args.objective = "wo_ps" if args.wo_ps else "w_ps"
     args.world_size = int(os.environ.get("WORLD_SIZE", 1))
     if not args.saver_name_pre:
-        name = args.model_type if args.prior_family == "imf" else args.prior_family
-        cfg = "cfg" if args.use_cfg else "nocfg"
-        paired = f"_eta{args.supervision_noise_level:g}" if objective == "supervised" else ""
-        paired_cfg = ("_pairedcfg" if args.supervision_use_cfg else "_pairednocfg") if objective == "supervised" else ""
-        args.saver_name_pre = f"lpgan_{name}_{objective}{paired}_{cfg}{paired_cfg}"
+        if args.prior_family == "titok":
+            args.saver_name_pre = f"lpgan_{args.tokenizer_name}_{args.objective}"
+        else:
+            name = args.model_type if args.prior_family == "imf" else args.prior_family
+            cfg = "cfg" if args.use_cfg else "nocfg"
+            paired = f"_eta{args.supervision_noise_level:g}" if not args.wo_ps else ""
+            paired_cfg = ("_pairedcfg" if args.supervision_use_cfg else "_pairednocfg") if not args.wo_ps else ""
+            args.saver_name_pre = f"lpgan_{name}_{args.objective}{paired}_{cfg}{paired_cfg}"
     if prepare:
         for path in (args.checkpoint_dir, args.results_dir, args.yaml_dir):
             Path(path).mkdir(parents=True, exist_ok=True)
         if int(os.environ.get("RANK", 0)) == 0:
             dest = Path(args.yaml_dir) / f"{args.saver_name_pre}.json"
             dest.write_text(json.dumps(vars(args), indent=2, sort_keys=True) + "\n")
-        set_seed(args.seed)
+        if args.prior_family == "titok":
+            # Preserve the token-pool experiment's RNG/backend configuration.
+            import torch
+            torch.manual_seed(args.seed)
+        else:
+            set_seed(args.seed)
     return args
 
 
 def validate_args(args):
     import math
-    for field in ("batch_size", "epochs", "num_steps", "supervision_num_steps", "save_interval", "log_interval"):
+    for field in ("batch_size", "epochs", "save_interval", "log_interval"):
         if getattr(args, field) <= 0:
             raise ValueError(f"--{field} must be positive")
     if args.workers < 0 or args.debug_steps < 0:
@@ -129,6 +163,21 @@ def validate_args(args):
         value = getattr(args, field)
         if not math.isfinite(value) or value < 0:
             raise ValueError(f"--{field} must be finite and nonnegative")
+    if args.prior_family == "titok":
+        if args.wo_ps:
+            raise ValueError("LP-GANs w/o PS is validated for continuous priors; TiTok retains its paired experimental objective")
+        if not args.real_latent_pool or not args.generated_latent_pool:
+            raise ValueError("TiTok training requires --real_latent_pool and --generated_latent_pool")
+        if not math.isfinite(args.lr_decay) or not 0 < args.lr_decay <= 1:
+            raise ValueError("--lr_decay must lie in (0,1]")
+        for field in ("min_lr", "pairwise_weight"):
+            if not math.isfinite(getattr(args, field)) or getattr(args, field) < 0:
+                raise ValueError(f"--{field} must be finite and nonnegative")
+        if args.save_interval != 1:
+            raise ValueError("TiTok retains the experimental checkpoint at every epoch (--save_interval 1)")
+        return
+    if args.num_steps <= 0 or args.supervision_num_steps <= 0:
+        raise ValueError("Sampling step counts must be positive")
     if not 0 <= args.supervision_noise_level <= 1:
         raise ValueError("Paired noise level must lie in [0,1]")
     if args.prior_family == "imf":
