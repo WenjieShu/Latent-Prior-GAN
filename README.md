@@ -7,7 +7,11 @@
 [![Code](https://img.shields.io/badge/GitHub-Code-black?logo=github)](https://github.com/WenjieShu/Latent-Prior-GAN)
 [![Homepage](https://img.shields.io/badge/Wenjie%20Shu-Homepage-blue)](https://wenjieshu.github.io/)
 
-[Wenjie Shu](https://wenjieshu.github.io/)
+**[Wenjie Shu](https://wenjieshu.github.io/)<sup>1</sup> · [Xianghong Fang](https://sunset-clouds.github.io/)<sup>1,&#42;</sup> · Dehan Kong<sup>1</sup> · Tim G. J. Rudner<sup>1,2</sup>**
+
+<sup>1</sup>University of Toronto &nbsp;&nbsp; <sup>2</sup>Vijil
+
+<sup>&#42;</sup>Equal contribution
 
 </div>
 
@@ -177,6 +181,19 @@ ruff format --check .
 GitHub Actions runs the CPU contract suite, lint, formatting, and launcher syntax checks on pushes and pull requests. Upstream architecture files retain their source formatting.
 
 CPU tests cover configuration, decoder gradients, GAN updates, unified training, checkpoint compatibility, pairing, sampling, and token-pool resume guards. [Validation details](docs/validation.md) describe the checks and remaining CUDA/DDP validation. [Migration and provenance](docs/migration.md) document source snapshots and checkpoint compatibility.
+
+## Citation
+
+If this work is useful for your research, please cite:
+
+```bibtex
+@article{shu2026latent,
+  title   = {Latent Prior GANs: Efficient Decoder Refinement via Inherited Generative Structure},
+  author  = {Shu, Wenjie and Fang, Xianghong and Kong, Dehan and Rudner, Tim G. J.},
+  journal = {arXiv},
+  year    = {2026}
+}
+```
 
 ## Acknowledgements
 
