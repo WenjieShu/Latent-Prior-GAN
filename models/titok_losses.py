@@ -12,8 +12,11 @@ def hinge_d_loss(real_logits, fake_logits):
 
 
 class ARPairwiseGANLoss(nn.Module):
-    def __init__(self, pairwise_weight=1.0, disc_weight=1.0,
-                 lecam_loss_weight=0.001, disc_cr_loss_weight=0.1):
+    """TiTok paired MSE and adaptive hinge GAN, without a perceptual term."""
+
+    def __init__(
+        self, pairwise_weight=1.0, disc_weight=1.0, lecam_loss_weight=0.001, disc_cr_loss_weight=0.1
+    ):
         super().__init__()
         self.pairwise_weight = pairwise_weight
         self.disc_weight = disc_weight
@@ -35,11 +38,10 @@ class ARPairwiseGANLoss(nn.Module):
         weight = torch.norm(pairwise_grads) / (torch.norm(gan_grads) + 1e-4)
         return torch.clamp(weight, 0.0, 1e4).detach()
 
-    def forward(self, real_images, generated_images, target_images,
-                optimizer_idx, last_layer=None):
+    def forward(self, paired_images, generated_images, real_images, optimizer_idx, last_layer=None):
         fake_aug = DiffAugment(generated_images, policy="color,translation,cutout_0.2", prob=0.5)
         if optimizer_idx == 0:
-            pairwise = F.mse_loss(real_images, target_images.detach())
+            pairwise = F.mse_loss(paired_images, real_images.detach())
             fake_logits = self.discriminator(fake_aug)
             gan = -fake_logits.mean()
             if self.disc_adaptive_weight:
@@ -51,15 +53,22 @@ class ARPairwiseGANLoss(nn.Module):
             else:
                 adaptive_weight = pairwise.new_tensor(1.0)
             total = self.pairwise_weight * pairwise + adaptive_weight * self.disc_weight * gan
-            return total, Pack(pairwise_loss=pairwise, g_loss=gan,
-                               disc_adaptive_weight=adaptive_weight)
-        real_aug = DiffAugment(target_images.detach(), policy="color,translation,cutout_0.2", prob=0.5)
+            return total, Pack(
+                pairwise_loss=pairwise, g_loss=gan, disc_adaptive_weight=adaptive_weight
+            )
+        real_aug = DiffAugment(
+            real_images.detach(), policy="color,translation,cutout_0.2", prob=0.5
+        )
         real_logits = self.discriminator(real_aug)
         fake_logits = self.discriminator(fake_aug.detach())
         real_mean = real_logits.mean().item()
         fake_mean = fake_logits.mean().item()
-        self.logits_real_ema = self.lecam_decay * self.logits_real_ema + (1 - self.lecam_decay) * real_mean
-        self.logits_fake_ema = self.lecam_decay * self.logits_fake_ema + (1 - self.lecam_decay) * fake_mean
+        self.logits_real_ema = (
+            self.lecam_decay * self.logits_real_ema + (1 - self.lecam_decay) * real_mean
+        )
+        self.logits_fake_ema = (
+            self.lecam_decay * self.logits_fake_ema + (1 - self.lecam_decay) * fake_mean
+        )
         lecam = (
             F.relu(real_logits - self.logits_fake_ema).pow(2).mean()
             + F.relu(self.logits_real_ema - fake_logits).pow(2).mean()
@@ -67,7 +76,7 @@ class ARPairwiseGANLoss(nn.Module):
         hinge = hinge_d_loss(real_logits, fake_logits)
         d_loss = self.disc_weight * (hinge + self.lecam_loss_weight * lecam)
         real_strong = self.discriminator(
-            DiffAugment(target_images.detach(), policy="color,translation,cutout_0.5", prob=1.0)
+            DiffAugment(real_images.detach(), policy="color,translation,cutout_0.5", prob=1.0)
         )
         fake_strong = self.discriminator(
             DiffAugment(generated_images.detach(), policy="color,translation,cutout_0.5", prob=1.0)
@@ -77,7 +86,11 @@ class ARPairwiseGANLoss(nn.Module):
             torch.cat([real_strong, fake_strong], dim=0),
         )
         d_loss = d_loss + self.disc_cr_loss_weight * consistency
-        return d_loss, Pack(d_loss=d_loss, logits_real=real_logits.mean().detach(),
-                            logits_fake=fake_logits.mean().detach(),
-                            hinge_d_loss=hinge, lecam_loss=lecam,
-                            disc_cr_loss=consistency)
+        return d_loss, Pack(
+            d_loss=d_loss,
+            logits_real=real_logits.mean().detach(),
+            logits_fake=fake_logits.mean().detach(),
+            hinge_d_loss=hinge,
+            lecam_loss=lecam,
+            disc_cr_loss=consistency,
+        )

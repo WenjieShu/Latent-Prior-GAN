@@ -78,7 +78,7 @@ Latent-Prior-GAN/
 └── docs/                           # reproduction, provenance, and validation
 ```
 
-Model defaults live in registries. Model wrappers, losses, training, data pairing, and evaluation have separate responsibilities.
+Model defaults live in registries. Model wrappers expose `train_mode()`, `eval_mode()`, `trainable_parameters()`, and `last_layer`. Training outputs follow `(generated_images, paired_images)`; w/o PS returns `None` for the paired output. Losses, training, data pairing, and evaluation have separate responsibilities.
 
 ## Setup
 
@@ -113,7 +113,7 @@ torchrun --standalone --nproc_per_node=8 train.py --config configs/imf_b.yaml \
   --saver_name_pre lpgan_imf_b_wo_ps
 ```
 
-Batch size is per GPU. Choose `configs/imf_m.yaml`, `imf_l.yaml`, or `imf_xl.yaml` for other scales. CLI values override YAML. Unknown or ignored historical fields fail validation. Generation and paired CFG are controlled independently with `--no-use_cfg` and `--no-supervision_use_cfg`. See [reproduction instructions](docs/reproduction.md) for DMF and MeanFlow.
+Batch size is per GPU. Choose `configs/imf_m.yaml`, `imf_l.yaml`, or `imf_xl.yaml` for other scales. CLI values override YAML. Each backend exposes its supported options; unknown or ignored historical fields fail validation. Generation and paired CFG are controlled independently with `--no-use_cfg` and `--no-supervision_use_cfg`. See [reproduction instructions](docs/reproduction.md) for DMF and MeanFlow.
 
 ### TiTok
 
@@ -149,8 +149,7 @@ NPROC_PER_NODE=8 bash scripts/eval_generation.sh --config configs/imf_b.yaml \
   --num_samples 50000 --out_dir results/imf_b_adapted
 
 # TiTok uses its registered eight sampling steps.
-NPROC_PER_NODE=8 bash scripts/eval_generation.sh --prior_family titok \
-  --generator_name titok-L32 \
+NPROC_PER_NODE=8 bash scripts/eval_generation.sh --config configs/titok_l32.yaml \
   --decoder_checkpoint checkpoints/runs/titok_l32/checkpoint-lpgan_titok_l32_w_ps-epoch002.pth.tar \
   --out_dir results/titok_l32_adapted
 
@@ -160,13 +159,22 @@ python eval_fid.py --protocol torch_fidelity \
   --reference /path/to/jit_in256_stats.npz --output results/imf_b_adapted/fid_torch.json
 ```
 
+Evaluation can read the same model-specific YAML used for training, including TiTok, without requiring token pools. It starts from pretrained decoder weights and applies `--decoder_checkpoint` when supplied; a training `decoder_init: random` setting never changes the baseline.
+
 Generation saves exactly indexed RGB PNGs, an `arr_0` uint8 NHWC NPZ, and a manifest with model, CFG, steps, and seeds. Existing nonempty output directories are refused. OpenAI evaluation uses `--protocol openai`, its TensorFlow dependency, and `VIRTUAL_imagenet256_labeled.npz`. **OpenAI and torch-fidelity numbers must be reported separately.**
 
 ## Validation
 
 ```bash
 python -m unittest discover -s tests -v
+
+# Development checks for project orchestration and wrappers.
+pip install -r requirements-dev.txt
+ruff check .
+ruff format --check .
 ```
+
+GitHub Actions runs the CPU contract suite, lint, formatting, and launcher syntax checks on pushes and pull requests. Upstream architecture files retain their source formatting.
 
 CPU tests cover configuration, decoder gradients, GAN updates, unified training, checkpoint compatibility, pairing, sampling, and token-pool resume guards. [Validation details](docs/validation.md) describe the checks and remaining CUDA/DDP validation. [Migration and provenance](docs/migration.md) document source snapshots and checkpoint compatibility.
 

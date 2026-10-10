@@ -1,11 +1,12 @@
 from torch import nn
-from torch.nn import functional as F
+
 
 class Tokenizer(nn.Module):
     def __init__(self, tokenizer_name, tokenizer_ckpt_path=""):
         super(Tokenizer, self).__init__()
         if tokenizer_name.startswith("titok"):
             from models.titok.tokenizer import TiTokTokenizer
+
             self.model = TiTokTokenizer(tokenizer_name, tokenizer_ckpt_path)
         else:
             raise ValueError(f"Unsupported tokenizer_name: {tokenizer_name}")
@@ -34,8 +35,3 @@ class Tokenizer(nn.Module):
 
     def forward(self, x):
         return self.model.standard_reconstruction(x)
-
-    def collect_eval_info(self, x):
-        x_rec = self.model.standard_reconstruction(x)
-        rec_loss = F.mse_loss(x.contiguous(), x_rec.contiguous())
-        return x_rec, rec_loss

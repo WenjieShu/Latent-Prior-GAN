@@ -17,7 +17,9 @@ def restore_loss_ema(loss, checkpoint):
 
 def validate_epoch_resume(checkpoint):
     if checkpoint.get("epoch_complete") is False:
-        raise ValueError("Partial-epoch debug checkpoints support evaluation only; resume from a completed epoch")
+        raise ValueError(
+            "Partial-epoch debug checkpoints support evaluation only; resume from a completed epoch"
+        )
 
 
 def validate_training_objective(checkpoint, args):
@@ -31,12 +33,32 @@ def validate_training_objective(checkpoint, args):
         objectives = {"pure": True, "supervised": False, "wo_ps": True, "w_ps": False}
         saved_wo_ps = objectives.get(saved.get("objective"))
     if saved_wo_ps is not None and saved_wo_ps != args.wo_ps:
-        raise ValueError("Resume paired-supervision setting differs; select the checkpoint's --wo_ps setting")
+        raise ValueError(
+            "Resume paired-supervision setting differs; select the checkpoint's --wo_ps setting"
+        )
 
 
 def advance_decoder_lr(optimizer, decay, minimum):
     for group in optimizer.param_groups:
         group["lr"] = max(minimum, group["lr"] * decay)
+
+
+def training_checkpoint(
+    model, losses, optimizer, optimizer_disc, args, epoch, global_step, epoch_complete
+):
+    """One eval/resume-compatible checkpoint schema for both training families."""
+    return {
+        "model": model_state_for_checkpoint(model, args.prior_family),
+        "optimizer": optimizer.state_dict(),
+        "discriminator": losses.discriminator.state_dict(),
+        "optimizer_disc": optimizer_disc.state_dict(),
+        "epoch": epoch,
+        "global_step": global_step,
+        "epoch_complete": epoch_complete,
+        "loss_ema": loss_ema_state(losses),
+        "args": vars(args),
+        **external_prior_metadata(args),
+    }
 
 
 def model_state_for_checkpoint(model, prior_family):
@@ -74,6 +96,7 @@ def validate_external_prior_identity(checkpoint, args):
     saved_checkpoint = saved.get("checkpoint")
     if saved_checkpoint and args.prior_checkpoint:
         import os
+
         if os.path.realpath(saved_checkpoint) != os.path.realpath(args.prior_checkpoint):
             raise RuntimeError(
                 "Resume external-prior checkpoint differs from the saved run: "
@@ -82,13 +105,11 @@ def validate_external_prior_identity(checkpoint, args):
 
 
 def external_prior_metadata(args):
-    if args.prior_family == "imf":
+    if args.prior_family in ("imf", "titok"):
         return {}
-    return {
-        "prior": {
-            "family": args.prior_family,
-            "checkpoint": args.prior_checkpoint,
-            "vae_checkpoint": args.prior_vae_checkpoint,
-            "dtype": args.prior_dtype,
-        }
-    }
+    prior = {"family": args.prior_family, "checkpoint": args.prior_checkpoint}
+    if args.prior_family == "dmf":
+        prior["dtype"] = args.prior_dtype
+    else:
+        prior["vae_checkpoint"] = args.prior_vae_checkpoint
+    return {"prior": prior}

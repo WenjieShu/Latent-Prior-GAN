@@ -1,0 +1,2 @@
+# Lint/format checks; contract tests use the standard-library unittest runner.
+ruff==0.17.0

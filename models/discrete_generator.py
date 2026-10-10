@@ -1,10 +1,12 @@
 from torch import nn
 
+
 class Generator(nn.Module):
     def __init__(self, generator_name, generator_ckpt_path="", resolution=256, cfg_omega=None):
         super(Generator, self).__init__()
         if generator_name.startswith("titok"):
             from models.titok.generator import TiTokGenerator
+
             self.model = TiTokGenerator(generator_name, generator_ckpt_path, resolution, cfg_omega)
         else:
             raise ValueError(f"Unsupported generator_name: {generator_name}")

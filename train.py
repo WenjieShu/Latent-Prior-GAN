@@ -3,9 +3,6 @@
 import os
 import sys
 import time
-import warnings
-
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import torch
 from torch import distributed as dist
@@ -14,34 +11,41 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 import config
 from data.dataloader import build_dataloader
+from models.model import LatentPriorGenerator
 from models.paired_supervision_losses import SupervisedDinoGANLoss
 from models.wo_ps_losses import DinoGANLoss
-from models.model import LatentPriorGenerator
-from utils.distributed import init_distributed_mode
 from utils.checkpointing import (
-    loss_ema_state,
-    restore_loss_ema,
-    validate_epoch_resume,
-    external_prior_metadata,
+    advance_decoder_lr,
     load_model_state,
-    model_state_for_checkpoint,
+    restore_loss_ema,
+    training_checkpoint,
+    validate_epoch_resume,
     validate_external_prior_identity,
     validate_training_objective,
-    advance_decoder_lr,
 )
+from utils.distributed import finish_distributed, init_distributed_mode, is_main_process
 from utils.util import Logger, LossManager, save_checkpoint
 
 try:
     import wandb
+
     WANDB_AVAILABLE = True
 except ImportError:
     WANDB_AVAILABLE = False
 
 
-def is_main_process():
-    if dist.is_available() and dist.is_initialized():
-        return dist.get_rank() == 0
-    return int(os.environ.get("RANK", 0)) == 0
+def require_cuda():
+    if not torch.cuda.is_available():
+        raise RuntimeError("Training currently requires at least one GPU.")
+
+
+def build_optimizers(model, losses, args):
+    options = dict(betas=(0.9, 0.95), weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(model.trainable_parameters(), lr=args.lr, **options)
+    optimizer_disc = torch.optim.AdamW(
+        losses.discriminator.parameters(), lr=args.disc_lr, **options
+    )
+    return optimizer, optimizer_disc
 
 
 def build_continuous_loss(args):
@@ -50,26 +54,30 @@ def build_continuous_loss(args):
 
 
 def continuous_forward(model, images, labels, wo_ps):
-    if wo_ps:
-        return model(labels=labels), None
-    return model(images, labels=labels)
+    return model(None if wo_ps else images, labels=labels)
 
 
-def continuous_loss(losses, images, generated, paired, optimizer_idx, last_layer, wo_ps):
+def continuous_loss(
+    losses, real_images, generated_images, paired_images, optimizer_idx, last_layer, wo_ps
+):
     if wo_ps:
-        return losses(inputs=images, generations=generated, optimizer_idx=optimizer_idx)
+        return losses(inputs=real_images, generations=generated_images, optimizer_idx=optimizer_idx)
     kwargs = {"last_layer": last_layer} if optimizer_idx == 0 else {}
-    return losses(inputs=images, generations=generated, supervisions=paired,
-                  optimizer_idx=optimizer_idx, **kwargs)
+    return losses(
+        inputs=real_images,
+        generations=generated_images,
+        supervisions=paired_images,
+        optimizer_idx=optimizer_idx,
+        **kwargs,
+    )
 
 
 def train_continuous(args):
-    warnings.filterwarnings("ignore")
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     if args.use_wandb and not WANDB_AVAILABLE:
         raise ImportError("--use_wandb requires pip install wandb")
-    assert torch.cuda.is_available(), "Training currently requires at least one GPU."
+    require_cuda()
 
     init_distributed_mode(args)
     device = args.gpu
@@ -105,11 +113,10 @@ def train_continuous(args):
         disc_para_count = sum(p.numel() for p in losses.discriminator.parameters())
         print(f"Discriminator Parameters: {disc_para_count / 1e6:.2f}M")
 
-    model_para = model.tokenizer.get_decoder_params()
+    model_para = model.trainable_parameters()
     disc_para = list(losses.discriminator.parameters())
 
-    optimizer = torch.optim.AdamW(model_para, lr=args.lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
-    optimizer_disc = torch.optim.AdamW(disc_para, lr=args.disc_lr, betas=(0.9, 0.95), weight_decay=args.weight_decay)
+    optimizer, optimizer_disc = build_optimizers(model, losses, args)
 
     resume_epoch = 0
     global_step = 0
@@ -140,9 +147,7 @@ def train_continuous(args):
         raise ValueError("Training requires at least one full batch per GPU")
 
     model = DDP(model.to(device), device_ids=[args.gpu], find_unused_parameters=True)
-    model.train()
-    model.module.tokenizer.encoder_eval()
-    model.module.diffusion.eval()
+    model.module.train_mode()
 
     losses = DDP(losses.to(device), device_ids=[args.gpu])
     losses.train()
@@ -174,23 +179,34 @@ def train_continuous(args):
                 labels = labels.to(device, non_blocking=True)
 
                 optimizer.zero_grad()
-                x_gen, x_sup = continuous_forward(model, real_images, labels, args.wo_ps)
+                generated_images, paired_images = continuous_forward(
+                    model, real_images, labels, args.wo_ps
+                )
 
-                # ============================================================
-                # Generator loss
-                # ============================================================
+                # Decoder update precedes the discriminator update.
                 gen_loss, gen_loss_pack = continuous_loss(
-                    losses, real_images, x_gen, x_sup, 0,
-                    model.module.tokenizer.last_layer, args.wo_ps)
+                    losses,
+                    real_images,
+                    generated_images,
+                    paired_images,
+                    0,
+                    model.module.last_layer,
+                    args.wo_ps,
+                )
                 gen_loss.backward()
                 torch.nn.utils.clip_grad_norm_(model_para, 1.0)
                 optimizer.step()
 
-
                 optimizer_disc.zero_grad()
                 d_loss, d_loss_pack = continuous_loss(
-                    losses, real_images, x_gen, x_sup, 1,
-                    model.module.tokenizer.last_layer, args.wo_ps)
+                    losses,
+                    real_images,
+                    generated_images,
+                    paired_images,
+                    1,
+                    model.module.last_layer,
+                    args.wo_ps,
+                )
                 d_loss.backward()
                 torch.nn.utils.clip_grad_norm_(disc_para, 1.0)
                 optimizer_disc.step()
@@ -211,8 +227,10 @@ def train_continuous(args):
                 print(msg)
                 if args.use_wandb and WANDB_AVAILABLE:
                     wandb.log(
-                        {f"train/{k}": train_loss.get_avg(k, args.log_interval)
-                         for k in train_loss.losses},
+                        {
+                            f"train/{k}": train_loss.get_avg(k, args.log_interval)
+                            for k in train_loss.losses
+                        },
                         step=global_step,
                     )
 
@@ -227,18 +245,16 @@ def train_continuous(args):
                     f"checkpoint-{args.saver_name_pre}-epoch{epoch:03d}.pth.tar",
                 )
                 save_checkpoint(
-                    {
-                        "model": model_state_for_checkpoint(model.module, args.prior_family),
-                        "optimizer": optimizer.state_dict(),
-                        "discriminator": losses.module.discriminator.state_dict(),
-                        "optimizer_disc": optimizer_disc.state_dict(),
-                        "epoch": epoch,
-                        "epoch_complete": step == len(train_loader),
-                        "loss_ema": loss_ema_state(losses.module),
-                        "global_step": global_step,
-                        "args": vars(args),
-                        **external_prior_metadata(args),
-                    },
+                    training_checkpoint(
+                        model.module,
+                        losses.module,
+                        optimizer,
+                        optimizer_disc,
+                        args,
+                        epoch,
+                        global_step,
+                        step == len(train_loader),
+                    ),
                     is_best=False,
                     filename=ckpt_path,
                 )
@@ -259,42 +275,46 @@ def train_titok(args):
     """Preserve the token-pool experiment's update and LR schedule."""
     from torch.utils.data import DataLoader
     from torch.utils.data.distributed import DistributedSampler
-    from data.titok_dataset import PairedARLatentDataset
-    from models.titok_model import ARLatentPriorDecoder
-    from models.titok_losses import ARPairwiseGANLoss
-    from utils.titok_distributed import init_distributed_mode as init_titok_distributed
 
-    assert torch.cuda.is_available(), "Training currently requires at least one GPU."
-    init_titok_distributed(args)
+    from data.titok_dataset import PairedARLatentDataset
+    from models.titok_losses import ARPairwiseGANLoss
+    from models.titok_model import ARLatentPriorDecoder
+
+    require_cuda()
+    init_distributed_mode(args, allow_single=True, timeout=7200)
     torch.manual_seed(args.seed)
     device = torch.device(f"cuda:{args.gpu}" if args.distributed else "cuda")
-    dataset = PairedARLatentDataset(args.real_latent_pool, args.generated_latent_pool,
-                                    args.dataset_dir, args.resolution)
+    dataset = PairedARLatentDataset(
+        args.real_latent_pool, args.generated_latent_pool, args.dataset_dir, args.resolution
+    )
     sampler = DistributedSampler(dataset, shuffle=True) if args.distributed else None
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=sampler is None,
-                        sampler=sampler, num_workers=args.workers, pin_memory=True,
-                        drop_last=True, persistent_workers=args.workers > 0)
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=sampler is None,
+        sampler=sampler,
+        num_workers=args.workers,
+        pin_memory=True,
+        drop_last=True,
+        persistent_workers=args.workers > 0,
+    )
     if len(loader) == 0:
         raise ValueError("Training requires nonempty batches")
     if args.debug_steps > len(loader) * args.epochs:
         raise ValueError("Dataset/epochs cannot reach requested debug_steps")
     model = ARLatentPriorDecoder(args.tokenizer_name, args.tokenizer_ckpt_path).to(device)
     losses = ARPairwiseGANLoss(
-        args.pairwise_weight, args.disc_weight,
-        args.lecam_loss_weight, args.disc_cr_loss_weight,
+        args.pairwise_weight,
+        args.disc_weight,
+        args.lecam_loss_weight,
+        args.disc_cr_loss_weight,
     ).to(device)
     model = DDP(model, device_ids=[args.gpu]) if args.distributed else model
     losses = DDP(losses, device_ids=[args.gpu]) if args.distributed else losses
     model_module = model.module if args.distributed else model
     loss_module = losses.module if args.distributed else losses
-    optimizer = torch.optim.AdamW(
-        model_module.trainable_parameters(), lr=args.lr,
-        betas=(0.9, 0.95), weight_decay=args.weight_decay,
-    )
-    optimizer_disc = torch.optim.AdamW(
-        loss_module.discriminator.parameters(), lr=args.disc_lr,
-        betas=(0.9, 0.95), weight_decay=args.weight_decay,
-    )
+    model_module.train_mode()
+    optimizer, optimizer_disc = build_optimizers(model_module, loss_module, args)
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     manager = LossManager()
 
@@ -323,15 +343,18 @@ def train_titok(args):
     for epoch in range(start_epoch, args.epochs + 1):
         if sampler is not None:
             sampler.set_epoch(epoch)
-        for step, (real_tokens, generated_tokens, target_images) in enumerate(loader, start=1):
+        for step, (real_tokens, generated_tokens, real_images) in enumerate(loader, start=1):
             real_tokens = real_tokens.to(device, non_blocking=True)
             generated_tokens = generated_tokens.to(device, non_blocking=True)
-            target_images = target_images.to(device, non_blocking=True)
+            real_images = real_images.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            real_images, fake_images = model(real_tokens, generated_tokens)
+            generated_images, paired_images = model(real_tokens, generated_tokens)
             g_loss, pack = losses(
-                real_images, fake_images, target_images,
-                optimizer_idx=0, last_layer=model_module.last_layer,
+                paired_images,
+                generated_images,
+                real_images,
+                optimizer_idx=0,
+                last_layer=model_module.last_layer,
             )
             if not torch.isfinite(g_loss):
                 raise FloatingPointError(f"Non-finite G loss at step {global_step + 1}")
@@ -339,8 +362,9 @@ def train_titok(args):
             torch.nn.utils.clip_grad_norm_(model_module.trainable_parameters(), 1.0)
             optimizer.step()
             optimizer_disc.zero_grad(set_to_none=True)
-            d_loss, d_pack = losses(real_images.detach(), fake_images.detach(),
-                                    target_images, optimizer_idx=1)
+            d_loss, d_pack = losses(
+                paired_images.detach(), generated_images.detach(), real_images, optimizer_idx=1
+            )
             if not torch.isfinite(d_loss):
                 raise FloatingPointError(f"Non-finite D loss at step {global_step + 1}")
             d_loss.backward()
@@ -350,60 +374,73 @@ def train_titok(args):
             pack.update(d_pack)
             manager.add_loss(pack)
             if global_step == 1 or global_step % args.log_interval == 0:
-                if not args.distributed or dist.get_rank() == 0:
-                    print(f"Step {global_step}: {manager.pprint(window=args.log_interval)}", flush=True)
+                if is_main_process():
+                    print(
+                        f"Step {global_step}: {manager.pprint(window=args.log_interval)}",
+                        flush=True,
+                    )
             if args.debug_steps > 0 and global_step >= args.debug_steps:
                 stopped = True
                 break
-        if not args.distributed or dist.get_rank() == 0:
+        if is_main_process():
             tag = f"step{global_step:06d}" if args.debug_steps > 0 else f"epoch{epoch:03d}"
-            path = os.path.join(args.checkpoint_dir, f"checkpoint-{args.saver_name_pre}-{tag}.pth.tar")
-            save_checkpoint({"model": model_module.state_dict(), "optimizer": optimizer.state_dict(),
-                             "discriminator": loss_module.discriminator.state_dict(),
-                             "optimizer_disc": optimizer_disc.state_dict(), "epoch": epoch,
-                             "global_step": global_step, "args": vars(args),
-                             "epoch_complete": step == len(loader),
-                             "loss_ema": loss_ema_state(loss_module)}, is_best=False, filename=path)
+            path = os.path.join(
+                args.checkpoint_dir, f"checkpoint-{args.saver_name_pre}-{tag}.pth.tar"
+            )
+            save_checkpoint(
+                training_checkpoint(
+                    model_module,
+                    loss_module,
+                    optimizer,
+                    optimizer_disc,
+                    args,
+                    epoch,
+                    global_step,
+                    step == len(loader),
+                ),
+                is_best=False,
+                filename=path,
+            )
             print(f"Epoch {epoch}: {manager.pprint()}")
         manager.clear()
         advance_decoder_lr(optimizer, args.lr_decay, args.min_lr)
         next_lr = optimizer.param_groups[0]["lr"]
-        if not args.distributed or dist.get_rank() == 0:
+        if is_main_process():
             current_disc_lr = optimizer_disc.param_groups[0]["lr"]
             print(
-                f"Epoch {epoch} complete: decoder_lr={next_lr:.8g}, "
-                f"disc_lr={current_disc_lr:.8g}",
+                f"Epoch {epoch} complete: decoder_lr={next_lr:.8g}, disc_lr={current_disc_lr:.8g}",
                 flush=True,
             )
         if args.distributed:
             dist.barrier()
         if stopped:
             break
-    if args.distributed:
-        dist.destroy_process_group()
 
 
 def main(argv=None):
     os.environ["NCCL_TIMEOUT_IN_MS"] = "7200000"
 
     args = config.parse_arg(argv)
-    dict_args = vars(args)
-
     sysout_path = os.path.join(args.results_dir, "logs")
     os.makedirs(sysout_path, exist_ok=True)
-    if is_main_process():
-        sys.stdout = Logger(sysout_path, args.saver_name_pre)
-
-    if is_main_process():
-        print("Configuration:")
-        for k, v in dict_args.items():
-            print(f"  {k}: {v}")
-        print()
-
-    if args.prior_family == "titok":
-        train_titok(args)
-    else:
-        train_continuous(args)
+    logger = Logger(sysout_path, args.saver_name_pre) if is_main_process() else None
+    previous_stdout = sys.stdout
+    try:
+        if logger is not None:
+            sys.stdout = logger
+            print("Configuration:")
+            for key, value in vars(args).items():
+                print(f"  {key}: {value}")
+            print()
+        if args.prior_family == "titok":
+            train_titok(args)
+        else:
+            train_continuous(args)
+    finally:
+        sys.stdout = previous_stdout
+        if logger is not None:
+            logger.close()
+        finish_distributed()
 
 
 if __name__ == "__main__":

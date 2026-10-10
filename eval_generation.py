@@ -11,60 +11,122 @@ import torch.distributed as dist
 from PIL import Image
 from tqdm import tqdm
 
+import config
 from utils.decoder_checkpoint import load_decoder_checkpoint
 from utils.sampling import indexed_inputs, pack_images, to_uint8
+
+CONTINUOUS_OPTIONS = (
+    "model_type",
+    "pretrained_imf_pytorch",
+    "prior_repo_path",
+    "prior_checkpoint",
+    "prior_vae_checkpoint",
+    "prior_dtype",
+    "vae_path",
+    "cfg_omega",
+    "cfg_t_min",
+    "cfg_t_max",
+)
 
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--prior_family", choices=["imf", "dmf", "meanflow", "titok"], default=None)
-    p.add_argument("--config", default="", help="continuous-prior training YAML")
-    for field in ("model_type", "pretrained_imf_pytorch", "prior_repo_path", "prior_checkpoint", "prior_vae_checkpoint", "prior_dtype", "vae_path"):
+    p.add_argument(
+        "--config",
+        default="",
+        help="model-specific training YAML; training-only settings do not control evaluation",
+    )
+    for field in (
+        "model_type",
+        "pretrained_imf_pytorch",
+        "prior_repo_path",
+        "prior_checkpoint",
+        "prior_vae_checkpoint",
+        "prior_dtype",
+        "vae_path",
+    ):
         p.add_argument("--" + field, default=None)
     for field in ("cfg_omega", "cfg_t_min", "cfg_t_max"):
         p.add_argument("--" + field, type=float, default=None)
     p.add_argument("--num_steps", type=int, default=None)
     p.add_argument("--use_cfg", action=argparse.BooleanOptionalAction, default=None)
-    p.add_argument("--generator_name", choices=["titok-L32", "titok-B64"], default="titok-L32")
+    p.add_argument("--generator_name", choices=["titok-L32", "titok-B64"], default=None)
     p.add_argument("--generator_ckpt_path", default="")
     p.add_argument("--tokenizer_ckpt_path", default="")
-    p.add_argument("--decoder_checkpoint", default="", help="empty evaluates the pretrained decoder")
+    p.add_argument(
+        "--decoder_checkpoint", default="", help="empty evaluates the pretrained decoder"
+    )
     p.add_argument("--num_samples", type=int, default=50000)
     p.add_argument("--batch_size", type=int, default=32, help="per GPU")
     p.add_argument("--seed", type=int, default=None)
-    p.add_argument("--out_dir", required=True, help="new directory; existing sample outputs are refused")
+    p.add_argument(
+        "--out_dir", required=True, help="new directory; existing sample outputs are refused"
+    )
     args = p.parse_args(argv)
     if args.num_samples <= 0 or args.batch_size <= 0:
         p.error("num_samples and batch_size must be positive")
+    values = config.load_yaml_config(args.config)
+    args.prior_family = config.resolve_family(values, args.prior_family)
+    cli = ["--config", args.config, "--prior_family", args.prior_family]
+    if args.seed is not None:
+        cli += ["--seed", str(args.seed)]
     if args.prior_family == "titok":
-        if args.config or any(getattr(args, k) is not None for k in ("model_type", "pretrained_imf_pytorch", "prior_repo_path", "prior_checkpoint", "prior_vae_checkpoint", "prior_dtype", "vae_path", "cfg_t_min", "cfg_t_max")):
-            p.error("TiTok uses its generator/tokenizer options, without continuous-prior configuration")
+        if any(getattr(args, key) is not None for key in CONTINUOUS_OPTIONS if key != "cfg_omega"):
+            p.error(
+                "TiTok uses generator/tokenizer options; continuous-prior options are unsupported"
+            )
         from models.titok import registry
+
+        if args.generator_name:
+            cli += ["--tokenizer_name", registry.pair_for(args.generator_name)]
+        if args.tokenizer_ckpt_path:
+            cli += ["--tokenizer_ckpt_path", args.tokenizer_ckpt_path]
+        resolved = config.parse_arg(cli, prepare=False, training=False)
+        args.generator_name = args.generator_name or registry.generator_for(resolved.tokenizer_name)
+        args.tokenizer_ckpt_path = resolved.tokenizer_ckpt_path
         steps = int(registry.config("generator", args.generator_name).model.generator.num_steps)
         if args.num_steps is not None and args.num_steps != steps:
             p.error(f"{args.generator_name} uses the registered {steps}-step protocol")
         args.num_steps = steps
-        args.seed = 3407 if args.seed is None else args.seed
+        args.seed = resolved.seed
         args.use_cfg = True if args.use_cfg is None else args.use_cfg
-        args.cfg_omega = float(registry.config("generator", args.generator_name).model.generator.guidance_scale) if args.cfg_omega is None else args.cfg_omega
+        args.cfg_omega = (
+            float(registry.config("generator", args.generator_name).model.generator.guidance_scale)
+            if args.cfg_omega is None
+            else args.cfg_omega
+        )
         if not np.isfinite(args.cfg_omega) or args.cfg_omega < 0:
             p.error("Invalid TiTok guidance scale")
         args.model_name = args.generator_name
-        args.resolution = 256
+        args.resolution = resolved.resolution
     else:
-        import config
-        cli = ["--config", args.config] if args.config else []
-        for key in ("prior_family", "model_type", "pretrained_imf_pytorch", "prior_repo_path", "prior_checkpoint", "prior_vae_checkpoint", "prior_dtype", "vae_path", "cfg_omega", "cfg_t_min", "cfg_t_max", "num_steps", "seed"):
+        if args.generator_name or args.generator_ckpt_path or args.tokenizer_ckpt_path:
+            p.error(
+                "Generator/tokenizer checkpoint options are specific to TiTok; use --vae_path for continuous priors"
+            )
+        for key in (*CONTINUOUS_OPTIONS, "num_steps"):
             if getattr(args, key) is not None:
                 cli += ["--" + key, str(getattr(args, key))]
         if args.use_cfg is not None:
             cli += ["--use_cfg" if args.use_cfg else "--no-use_cfg"]
-        resolved = config.parse_arg(cli, prepare=False)
-        for key, value in vars(resolved).items():
-            if key not in ("batch_size", "config"):
-                setattr(args, key, value)
+        resolved = config.parse_arg(cli, prepare=False, training=False)
+        # Import only model/sampling settings. Training initialization, optimizer,
+        # output paths, and the PS objective must not affect decoder evaluation.
+        for key in (
+            *CONTINUOUS_OPTIONS,
+            "num_steps",
+            "use_cfg",
+            "seed",
+            "resolution",
+            "vae_type",
+            "latent_size",
+        ):
+            if hasattr(resolved, key):
+                setattr(args, key, getattr(resolved, key))
+        args.decoder_init = "pretrained"
         args.model_name = args.model_type if args.prior_family == "imf" else args.prior_family
-    if args.seed < 0 or args.seed >= 2 ** 32:
+    if args.seed < 0 or args.seed >= 2**32:
         p.error("seed must be in [0, 2**32)")
     return args
 
@@ -74,33 +136,37 @@ def build_models(args, device):
         from models.discrete_generator import Generator
         from models.discrete_tokenizer import Tokenizer
         from models.titok import registry
+
         tokenizer_name = registry.pair_for(args.generator_name)
         tokenizer = Tokenizer(tokenizer_name, args.tokenizer_ckpt_path).to(device)
-        prior = Generator(args.generator_name, args.generator_ckpt_path, args.resolution, args.cfg_omega).to(device)
+        prior = Generator(
+            args.generator_name, args.generator_ckpt_path, args.resolution, args.cfg_omega
+        ).to(device)
         prior.eval_mode()
         if args.decoder_checkpoint:
             load_decoder_checkpoint(tokenizer, args.decoder_checkpoint, "titok", tokenizer_name)
         tokenizer.eval_mode()
+
         def sample(labels, seeds):
             tokens = prior.standard_generation(len(labels), labels, args.use_cfg, device, seeds)
             return tokenizer.latent_to_image(tokens)
+
         metadata = dict(prior.model.sampling)
         metadata["guidance_scale"] = args.cfg_omega if args.use_cfg else 0.0
     else:
         from models.model import LatentPriorGenerator
-        model = LatentPriorGenerator(args).to(device).eval().requires_grad_(False)
+
+        model = LatentPriorGenerator(args).to(device)
+        model.eval_mode()
         if args.decoder_checkpoint:
-            load_decoder_checkpoint(model.tokenizer, args.decoder_checkpoint, args.prior_family, args.model_type)
+            load_decoder_checkpoint(
+                model.tokenizer, args.decoder_checkpoint, args.prior_family, args.model_name
+            )
+
         def sample(labels, seeds):
-            latents = model.diffusion.generate(len(labels), labels=labels, num_steps=args.num_steps, use_cfg=args.use_cfg, device=device, seeds=seeds)
-            return model.decode(latents)
-        if args.prior_family == "imf":
-            metadata = {"omega": args.cfg_omega if args.use_cfg else 1.0, "t_min": args.cfg_t_min if args.use_cfg else 0.0, "t_max": args.cfg_t_max if args.use_cfg else 1.0}
-        elif args.prior_family == "dmf":
-            metadata = dict(model.diffusion.defaults)
-        else:
-            from omegaconf import OmegaConf
-            metadata = OmegaConf.to_container(model.diffusion.sampling, resolve=True)
+            return model.standard_generation(labels, seeds)
+
+        metadata = model.sampling_metadata()
     return sample, metadata
 
 
@@ -124,7 +190,19 @@ def main():
         dist.barrier()
     if rank == 0:
         (out / "images").mkdir(parents=True, exist_ok=True)
-        (out / "manifest.json").write_text(json.dumps({**vars(args), "world_size": world_size, "status": "generating", "seed_rule": "index XOR seed", "label_rule": "index modulo 1000"}, indent=2) + "\n")
+        (out / "manifest.json").write_text(
+            json.dumps(
+                {
+                    **vars(args),
+                    "world_size": world_size,
+                    "status": "generating",
+                    "seed_rule": "index XOR seed",
+                    "label_rule": "index modulo 1000",
+                },
+                indent=2,
+            )
+            + "\n"
+        )
     if distributed:
         dist.barrier()
     sample, sampling_metadata = build_models(args, device)

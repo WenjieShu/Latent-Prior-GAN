@@ -4,8 +4,9 @@ import torch
 import torch.nn as nn
 
 from models.priors import build_prior
-from models.tokenizer import build_tokenizer
 from models.registry import validate_prior_inputs
+from models.tokenizer import build_tokenizer
+
 
 class LatentPriorGenerator(nn.Module):
     """Frozen continuous latent prior, trainable SD-VAE decoder."""
@@ -18,28 +19,37 @@ class LatentPriorGenerator(nn.Module):
         self.diffusion = build_prior(args)
         if hasattr(self.diffusion, "validate_tokenizer"):
             self.diffusion.validate_tokenizer(self.tokenizer)
-        self.freeze_prior_and_encoder()
-        self.load_prior()
-
-    def load_prior(self):
+        self.diffusion.requires_grad_(False)
         if hasattr(self.diffusion, "load"):
             self.diffusion.load()
+        self.train_mode()
+
+    def train_mode(self):
+        """Train only the decoder, keeping the encoder and latent prior frozen."""
+        self.train()
+        self.tokenizer.train_mode()
         self.diffusion.eval()
 
-    def freeze_prior_and_encoder(self):
-        self.tokenizer.freeze_encoder_train_decoder()
-        for param in self.diffusion.parameters():
-            param.requires_grad = False
-        self.diffusion.eval()
+    def eval_mode(self):
+        self.eval()
+        self.requires_grad_(False)
+
+    def trainable_parameters(self):
+        return self.tokenizer.trainable_parameters()
+
+    @property
+    def last_layer(self):
+        return self.tokenizer.last_layer
 
     @torch.no_grad()
-    def sample_latents(self, labels):
+    def sample_latents(self, labels, seeds=None):
         return self.diffusion.generate(
             batch_size=labels.size(0),
             labels=labels,
             num_steps=self.args.num_steps,
             use_cfg=self.args.use_cfg,
             device=labels.device,
+            seeds=seeds,
         )
 
     @torch.no_grad()
@@ -49,7 +59,7 @@ class LatentPriorGenerator(nn.Module):
         z_denoised = self.diffusion.denoise_from_encoder_latent(
             z_real,
             maximum_noise_level=self.args.supervision_noise_level,
-            normalized=self.args.supervision_normalized,
+            normalized=getattr(self.args, "supervision_normalized", False),
             labels=labels,
             num_steps=self.args.supervision_num_steps,
             use_cfg=self.args.supervision_use_cfg,
@@ -61,20 +71,28 @@ class LatentPriorGenerator(nn.Module):
     def decode(self, latents):
         return self.tokenizer.decode(latents).clamp(-1, 1)
 
+    def standard_generation(self, labels, seeds=None):
+        return self.decode(self.sample_latents(labels, seeds))
 
-    # LP-GANs w/o PS uses generation only; full LP-GANs also returns paired outputs.
-    def forward(self, x=None, labels=None):
-        assert labels != None
-        if x is None:
-            x_gen  = self.decode(self.sample_latents(labels))
-            return x_gen
-        return self.generation_and_supervision(x, labels)
+    def sampling_metadata(self):
+        if self.args.prior_family == "imf":
+            return {
+                "omega": self.args.cfg_omega if self.args.use_cfg else 1.0,
+                "t_min": self.args.cfg_t_min if self.args.use_cfg else 0.0,
+                "t_max": self.args.cfg_t_max if self.args.use_cfg else 1.0,
+            }
+        if self.args.prior_family == "dmf":
+            return dict(self.diffusion.defaults)
+        from omegaconf import OmegaConf
 
-    # Paired supervision (PS).
-    def generation_and_supervision(self, x, labels=None):
-        assert labels != None
-        x_gen  = self.decode(self.sample_latents(labels))
-        z_denoised = self.paired_latents(x, labels)
-        x_sup = self.decode(z_denoised)
-        return x_gen, x_sup
+        return OmegaConf.to_container(self.diffusion.sampling, resolve=True)
 
+    def forward(self, real_images=None, labels=None):
+        """Return (generated_images, paired_images); w/o PS supplies no real images."""
+        if labels is None:
+            raise ValueError("Class labels are required for LP-GANs generation")
+        generated_images = self.standard_generation(labels)
+        paired_images = None
+        if real_images is not None:
+            paired_images = self.decode(self.paired_latents(real_images, labels))
+        return generated_images, paired_images

@@ -1,4 +1,3 @@
-import torch
 from torch import nn
 
 from models.discrete_tokenizer import Tokenizer
@@ -12,12 +11,22 @@ class ARLatentPriorDecoder(nn.Module):
         self.tokenizer = Tokenizer(tokenizer_name, tokenizer_ckpt_path)
         self.tokenizer.train_mode()
 
+    def train_mode(self):
+        self.train()
+        self.tokenizer.train_mode()
+
+    def eval_mode(self):
+        self.eval()
+        self.tokenizer.eval_mode()
+
     def decode_pair(self, real_tokens, generated_tokens):
-        real_images = self.tokenizer.latent_to_image(real_tokens)
+        # Preserve the experiment's paired-before-generated decoding order.
+        paired_images = self.tokenizer.latent_to_image(real_tokens)
         generated_images = self.tokenizer.latent_to_image(generated_tokens)
-        return real_images, generated_images
+        return generated_images, paired_images
 
     def forward(self, real_tokens, generated_tokens):
+        """Return (generated_images, paired_images), matching continuous training."""
         return self.decode_pair(real_tokens, generated_tokens)
 
     @property

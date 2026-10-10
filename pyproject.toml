@@ -1,0 +1,17 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+# Check project orchestration and wrappers; retain upstream architecture source.
+include = [
+  "train.py", "config.py", "eval_generation.py", "eval_fid.py",
+  "models/model.py", "models/tokenizer.py", "models/titok_model.py",
+  "models/discrete_tokenizer.py", "models/discrete_generator.py",
+  "models/registry.py", "models/titok/registry.py",
+  "models/paired_supervision_losses.py", "models/wo_ps_losses.py", "models/titok_losses.py",
+  "data/dataloader.py", "data/__init__.py",
+  "utils/distributed.py", "utils/checkpointing.py", "utils/util.py",
+  "tests/*.py",
+]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

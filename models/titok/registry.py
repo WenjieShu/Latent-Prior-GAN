@@ -16,19 +16,33 @@ def _config(size, tokens, randomize_temperature, guidance_scale, **generator_ext
     return {
         "model": {
             "vq_model": {
-                "codebook_size": CODEBOOK_SIZE, "token_size": 12, "use_l2_norm": True,
+                "codebook_size": CODEBOOK_SIZE,
+                "token_size": 12,
+                "use_l2_norm": True,
                 "commitment_cost": 0.25,
-                "vit_enc_model_size": size, "vit_dec_model_size": size,
-                "vit_enc_patch_size": 16, "vit_dec_patch_size": 16,
-                "num_latent_tokens": tokens, "finetune_decoder": True,
+                "vit_enc_model_size": size,
+                "vit_dec_model_size": size,
+                "vit_enc_patch_size": 16,
+                "vit_dec_patch_size": 16,
+                "num_latent_tokens": tokens,
+                "finetune_decoder": True,
             },
             "generator": {
-                "model_type": "ViT", "hidden_size": 768, "num_hidden_layers": 24,
-                "num_attention_heads": 16, "intermediate_size": 3072,
-                "dropout": 0.1, "attn_drop": 0.1, "num_steps": 8, "class_label_dropout": 0.1,
-                "image_seq_len": tokens, "condition_num_classes": 1000,
-                "randomize_temperature": randomize_temperature, "guidance_scale": guidance_scale,
-                "guidance_decay": "linear", **generator_extra,
+                "model_type": "ViT",
+                "hidden_size": 768,
+                "num_hidden_layers": 24,
+                "num_attention_heads": 16,
+                "intermediate_size": 3072,
+                "dropout": 0.1,
+                "attn_drop": 0.1,
+                "num_steps": 8,
+                "class_label_dropout": 0.1,
+                "image_seq_len": tokens,
+                "condition_num_classes": 1000,
+                "randomize_temperature": randomize_temperature,
+                "guidance_scale": guidance_scale,
+                "guidance_decay": "linear",
+                **generator_extra,
             },
         },
         "dataset": {"preprocessing": {"crop_size": EVAL_SIZE}},
@@ -47,10 +61,16 @@ MODELS = {
         "titok-vqb64": {"ckpt": os.path.join(_CKPT, "tokenizer_titok_b64.bin"), "config": "B64"},
     },
     "generator": {
-        "titok-L32": {"ckpt": os.path.join(_CKPT, "generator_titok_l32.bin"), "config": "L32",
-                      "native_resolution": 256},
-        "titok-B64": {"ckpt": os.path.join(_CKPT, "generator_titok_b64.bin"), "config": "B64",
-                      "native_resolution": 256},
+        "titok-L32": {
+            "ckpt": os.path.join(_CKPT, "generator_titok_l32.bin"),
+            "config": "L32",
+            "native_resolution": 256,
+        },
+        "titok-B64": {
+            "ckpt": os.path.join(_CKPT, "generator_titok_b64.bin"),
+            "config": "B64",
+            "native_resolution": 256,
+        },
     },
 }
 
@@ -60,6 +80,14 @@ _PAIRS = {"titok-L32": "titok-vql32", "titok-B64": "titok-vqb64"}
 def pair_for(generator_name):
     """The tokenizer name this generator's tokens decode with."""
     return _PAIRS[generator_name]
+
+
+def generator_for(tokenizer_name):
+    """The registered generator paired with this tokenizer."""
+    for generator_name, paired_tokenizer in _PAIRS.items():
+        if paired_tokenizer == tokenizer_name:
+            return generator_name
+    raise ValueError(f"Unknown TiTok tokenizer: {tokenizer_name}")
 
 
 def _resolve(kind, name):
@@ -75,8 +103,10 @@ def native_resolution(name):
 
 def _check_resolution(name, resolution):
     if resolution is not None and resolution != native_resolution(name):
-        raise ValueError(f"{name} is a {native_resolution(name)}-native checkpoint but "
-                         f"resolution={resolution} was requested.")
+        raise ValueError(
+            f"{name} is a {native_resolution(name)}-native checkpoint but "
+            f"resolution={resolution} was requested."
+        )
 
 
 def config(kind, name):

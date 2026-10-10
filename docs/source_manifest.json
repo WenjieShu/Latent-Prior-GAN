@@ -276,7 +276,7 @@
     "source_sha256": "ee73a5e8c66322f151ebe91d2783142b91842fda7a0ee6471d8710b7847c8dda"
   },
   {
-    "file": "utils/titok_distributed.py",
+    "file": "utils/distributed.py",
     "source_snapshot": "titok-validated-2026-10-09",
     "source_file": "utils/distributed.py",
     "source_sha256": "f77d3a1c8228de761066dc83cc4513b3bfcf37e41f35f4164c61c5751e171200"

@@ -18,6 +18,18 @@ Machine-specific Slurm scripts, debug runs, converted JAX iMF code, unsupported 
 
 Training now has one public entrypoint and one launcher, `scripts/train.sh`. PS means paired supervision, following the paper. Continuous and TiTok loops retain their separate experimental update and LR policies inside `train.py`. Family-specific configuration rejects incompatible options. The old TiTok `--max_steps` option is now the common `--debug_steps`; old entrypoint filenames are retained only in provenance records. Loss modules are named `paired_supervision_losses.py` and `wo_ps_losses.py`, with their equations unchanged.
 
+## Public interfaces and configuration
+
+Continuous and TiTok model wrappers now expose `train_mode()`, `eval_mode()`, `trainable_parameters()`, and `last_layer`. Both training forwards return `(generated_images, paired_images)`; continuous w/o PS returns `None` for the second item. TiTok still decodes paired tokens before generated tokens, preserving the experimental execution order. Continuous SD-VAE tokenizers provide `extract_latents()` and `latent_to_image()` alongside their explicit normalized `encode()`/`decode()` methods. Parameter nesting (`tokenizer.vae.*`, `tokenizer.model.model.*`, `diffusion.*`) is retained for checkpoint loading.
+
+The old continuous `get_decoder_params()`, `encoder_eval()`, and redundant mode helpers are replaced by the public methods above. Model internals remain behind those methods. Optimizer construction, checkpoint assembly, rank checks, process-group initialization, and cleanup are shared. Continuous and TiTok update loops keep their experimental optimizer-zeroing, DDP wrapping, RNG/backend settings, detach points, and LR policies. TiTok's 7200-second process-group timeout is retained; non-master printing no longer requires modifying Python's built-in `print`.
+
+Training help and YAML keys are backend-specific: iMF uses official `.pth` and CFG options; DMF uses native source/checkpoint and precision options; MeanFlow uses native source/checkpoint and EMA-VAE snapshot options. Previously accepted fields that had no effect on a backend are rejected. Historical checkpoint args may still contain those fields; loading saved state does not reparse them as a new training config.
+
+Evaluation reads either continuous or TiTok training YAML. Only model and sampling fields determine evaluation; optimizer/output/PS fields are not imported into the evaluation args. Evaluation always initializes from pretrained decoder weights before optionally loading an adapted decoder checkpoint, including when the training YAML says `decoder_init: random`. TiTok evaluation resolves the generator/tokenizer pair from the registry and does not require training pools.
+
+Unused checkpoint/LR helpers, alternative adversarial-loss functions, and the redundant dataset loader are removed. Loss equations used by the experiments remain unchanged. Ruff checks are scoped in `pyproject.toml` to project orchestration, wrappers, losses, and tests; imported architecture/feature-network code retains its upstream formatting.
+
 ## Source snapshots
 
 The continuous path comes from the audited `Latent-Prior-GAN-External` experimental snapshot, including official iMF and validated DMF/MeanFlow adapters. The TiTok path comes from the audited `FD_AR-main` snapshot: its 76-file local source matched the corresponding server source byte for byte. The torch-fidelity evaluator follows cleaned GAR. These source snapshots were audited on 2026-10-09; a snapshot is not proof of an exact historical run's Git revision.

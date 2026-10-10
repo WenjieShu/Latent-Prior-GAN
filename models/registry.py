@@ -12,16 +12,27 @@ FAMILIES = ("imf", "dmf", "meanflow", "titok")
 def validate_prior_inputs(args):
     """Fail before loading a VAE or allocating a large missing prior."""
     from pathlib import Path
-    checkpoint = args.pretrained_imf_pytorch if args.prior_family == "imf" else args.prior_checkpoint
+
+    checkpoint = (
+        args.pretrained_imf_pytorch if args.prior_family == "imf" else args.prior_checkpoint
+    )
     if not checkpoint or not Path(checkpoint).is_file():
-        raise FileNotFoundError(f"Missing {args.prior_family} prior checkpoint: {checkpoint or '(unset)'}")
+        raise FileNotFoundError(
+            f"Missing {args.prior_family} prior checkpoint: {checkpoint or '(unset)'}"
+        )
     if args.prior_family != "imf":
         root = Path(args.prior_repo_path)
         source = "models/dmft.py" if args.prior_family == "dmf" else "src/training/network_utils.py"
         if not args.prior_repo_path or not (root / source).is_file():
-            raise FileNotFoundError(f"Invalid native {args.prior_family} checkout: {args.prior_repo_path or '(unset)'}")
-    if args.prior_family == "meanflow" and (not args.prior_vae_checkpoint or not Path(args.prior_vae_checkpoint).is_file()):
-        raise FileNotFoundError("MeanFlow requires its native EMA VAE snapshot (--prior_vae_checkpoint)")
+            raise FileNotFoundError(
+                f"Invalid native {args.prior_family} checkout: {args.prior_repo_path or '(unset)'}"
+            )
+    if args.prior_family == "meanflow" and (
+        not args.prior_vae_checkpoint or not Path(args.prior_vae_checkpoint).is_file()
+    ):
+        raise FileNotFoundError(
+            "MeanFlow requires its native EMA VAE snapshot (--prior_vae_checkpoint)"
+        )
 
 
 def model_defaults(name):
@@ -38,7 +49,9 @@ def validate_imf_checkpoint_path(path):
 
 def resolve_continuous_defaults(args):
     if args.prior_family == "imf":
-        args.pretrained_imf_pytorch = args.pretrained_imf_pytorch or f"checkpoints/imf/{args.model_type}.pth"
+        args.pretrained_imf_pytorch = (
+            args.pretrained_imf_pytorch or f"checkpoints/imf/{args.model_type}.pth"
+        )
         validate_imf_checkpoint_path(args.pretrained_imf_pytorch)
         defaults = model_defaults(args.model_type)
         for field, key in [("cfg_omega", "omega"), ("cfg_t_min", "t_min"), ("cfg_t_max", "t_max")]:
@@ -48,8 +61,4 @@ def resolve_continuous_defaults(args):
     required = "ema" if args.prior_family == "meanflow" else "mse"
     if args.vae_type != required:
         raise ValueError(f"{args.prior_family} requires --vae_type {required}")
-    if args.prior_family != "imf" and any(getattr(args, key) is not None for key in ("cfg_omega", "cfg_t_min", "cfg_t_max")):
-        raise ValueError("CFG overrides are supported for iMF; external priors retain native sampling defaults")
-    if args.prior_family != "imf" and args.supervision_normalized:
-        raise ValueError("Normalized paired latents are supported only by iMF")
     return args
