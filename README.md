@@ -5,6 +5,7 @@
 ### Efficient Decoder Refinement via Inherited Generative Structure
 
 [![Code](https://img.shields.io/badge/GitHub-Code-black?logo=github)](https://github.com/WenjieShu/Latent-Prior-GAN)
+[![Project Page](https://img.shields.io/badge/Project-Page-3b6ea8.svg)](https://wenjieshu.github.io/Latent-Prior-GAN/)
 [![Homepage](https://img.shields.io/badge/Wenjie%20Shu-Homepage-blue)](https://wenjieshu.github.io/)
 
 **[Wenjie Shu](https://wenjieshu.github.io/)<sup>1</sup> · [Xianghong Fang](https://sunset-clouds.github.io/)<sup>1,&#42;</sup> · Dehan Kong<sup>1</sup> · Tim G. J. Rudner<sup>1,2</sup>**
@@ -79,7 +80,7 @@ Latent-Prior-GAN/
 ├── data/                           # ImageNet loading and token-pool pairing
 ├── scripts/                        # portable torchrun launchers
 ├── tests/                          # CPU contract and training regression checks
-└── docs/                           # reproduction, provenance, and validation
+└── docs/                           # project page, reproduction, and validation
 ```
 
 Model defaults live in registries. Model wrappers expose `train_mode()`, `eval_mode()`, `trainable_parameters()`, and `last_layer`. Training outputs follow `(generated_images, paired_images)`; w/o PS returns `None` for the paired output. Losses, training, data pairing, and evaluation have separate responsibilities.
@@ -181,6 +182,8 @@ ruff format --check .
 GitHub Actions runs the CPU contract suite, lint, formatting, and launcher syntax checks on pushes and pull requests. Upstream architecture files retain their source formatting.
 
 CPU tests cover configuration, decoder gradients, GAN updates, unified training, checkpoint compatibility, pairing, sampling, and token-pool resume guards. [Validation details](docs/validation.md) describe the checks and remaining CUDA/DDP validation. [Migration and provenance](docs/migration.md) document source snapshots and checkpoint compatibility.
+
+The static [project page](https://wenjieshu.github.io/Latent-Prior-GAN/) lives in `docs/index.html`, with styles and BibTeX copying adapted from GAR/FDDA. Preview it locally with `python -m http.server 8000 --directory docs`. GitHub Pages publishes `main` → `/docs`.
 
 ## Citation
 

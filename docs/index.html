@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Latent Prior GANs (LP-GANs) inherit pretrained generative structure and adversarially refine only the decoder, with paired supervision and no additional generation-time network.">
+  <meta name="theme-color" content="#f7f4ee">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Latent Prior GANs: Efficient Decoder Refinement via Inherited Generative Structure">
+  <meta property="og:description" content="Frozen latent prior. Adversarial decoder refinement. Generation-aware paired supervision.">
+  <meta property="og:url" content="https://wenjieshu.github.io/Latent-Prior-GAN/">
+  <meta property="og:image" content="https://wenjieshu.github.io/Latent-Prior-GAN/assets/LP_GAN_overview.png">
+  <link rel="canonical" href="https://wenjieshu.github.io/Latent-Prior-GAN/">
+  <title>Latent Prior GANs: Efficient Decoder Refinement via Inherited Generative Structure</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="wordmark" href="#top" aria-label="Latent Prior GANs home"><span class="wordmark-main">Latent Prior GANs</span></a>
+    <nav aria-label="Primary navigation">
+      <a href="#idea">Idea</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#efficiency">Efficiency</a>
+      <a href="#citation">Citation</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero shell">
+      <h1><span class="title-sky">Latent Prior GANs</span></h1>
+      <p class="dek">Efficient Decoder Refinement via Inherited Generative Structure</p>
+      <p class="authors">
+        <a href="https://wenjieshu.github.io/" target="_blank" rel="noopener noreferrer">Wenjie Shu</a><sup>1</sup>
+        <span>·</span> <a href="https://sunset-clouds.github.io/" target="_blank" rel="noopener noreferrer">Xianghong Fang</a><sup>1,*</sup>
+        <span>·</span> Dehan Kong<sup>1</sup>
+        <span>·</span> Tim G. J. Rudner<sup>1,2</sup>
+      </p>
+      <p class="affiliations"><sup>1</sup>University of Toronto &nbsp; <sup>2</sup>Vijil &nbsp; <sup>*</sup>Equal contribution</p>
+      <div class="actions">
+        <a class="button dark" href="https://github.com/WenjieShu/Latent-Prior-GAN" target="_blank" rel="noopener noreferrer">Code <span>↗</span></a>
+        <a class="button" href="#citation">BibTeX <span>↓</span></a>
+      </div>
+      <div class="thesis">Inherit generative structure. Refine the decoder.</div>
+      <p class="answer">Latent Prior GANs (LP-GANs) start from a pretrained latent generative model, freeze its latent generator and image encoder, and adversarially refine its decoder on generation-time latents. Paired supervision anchors refinement to source images. The adapted decoder introduces no additional network at generation time.</p>
+    </section>
+
+    <section id="idea" class="section shell split">
+      <div class="section-label">01 / Motivation</div>
+      <div class="prose">
+        <h2>Generative structure<br>can be inherited</h2>
+        <p>A pretrained latent generative model already provides a learned latent distribution and a latent-to-image mapping. LP-GANs inherit this structure and focus adversarial learning on the decoder.</p>
+        <p>The decoder is typically trained on reconstruction latents but receives generated latents at deployment. We refine it on the generation-time distribution while keeping the latent prior fixed.</p>
+      </div>
+      <figure class="paper-figure full-span">
+        <img src="assets/LP_GAN_overview.png" width="1800" height="927" alt="Overview of inherited generative structure, the decoder train-generation mismatch, and LP-GANs decoder refinement." loading="eager" decoding="async">
+        <figcaption><span class="figure-number">Figure 1.</span> LP-GANs inherit a pretrained latent prior and decoder initialization, then use adversarial learning for generation-time decoder refinement.</figcaption>
+      </figure>
+      <p class="figure-readout full-span">Five epochs of decoder refinement improve generation across the four tested iMF scales.</p>
+    </section>
+
+    <section id="method" class="section method-section">
+      <div class="shell">
+        <div class="section-label">02 / Method</div>
+        <div class="section-head">
+          <h2>Frozen prior.<br>Refined decoder.</h2>
+          <p>The decoder receives adversarial supervision on fully generated latents and paired supervision on image-corresponding latents. Both branches share the same decoder.</p>
+        </div>
+        <p class="figure-setup">The latent generator and encoder remain fixed. Training updates the decoder and image-space discriminator; generation uses the refined decoder with the original sampler.</p>
+        <figure class="paper-figure pipeline-figure">
+          <img src="assets/LP_GAN_pipeline.png" width="1800" height="636" alt="LP-GANs pipeline: adversarial supervision on generated latents and paired supervision on intermediate image-corresponding latents." loading="lazy" decoding="async">
+          <figcaption><span class="figure-number">Figure 2.</span> The generation branch supplies an adversarial objective. The paired branch supplies reconstruction and perceptual objectives for continuous priors, using intermediate latents from a partial generative trajectory.</figcaption>
+        </figure>
+        <div class="stages">
+          <article><span>01 / Inherit</span><h3>Start from a latent model</h3><p>Use the pretrained latent generator and decoder initialization. Freeze the generator and image encoder.</p></article>
+          <article><span>02 / Generate</span><h3>Refine at deployment inputs</h3><p>Decode fully generated latents and apply an image-space adversarial objective.</p></article>
+          <article><span>03 / Pair</span><h3>Anchor the decoder</h3><p>Use image-corresponding latents for paired supervision (PS). Continuous priors provide a reconstruction-to-generation trajectory.</p></article>
+          <article><span>04 / Deploy</span><h3>Keep the original sampler</h3><p>Replace the decoder with its refined weights. Discard the training discriminator; retain the original sampling procedure.</p></article>
+        </div>
+        <p class="figure-readout method-readout">For TiTok, paired supervision uses encoded real-image tokens, while adversarial refinement uses tokens sampled from the frozen MaskGIT generator.</p>
+      </div>
+    </section>
+
+    <section id="results" class="section shell">
+      <div class="section-label">03 / Evaluation</div>
+      <div class="section-head">
+        <h2>Generation gains<br>across iMF scales</h2>
+        <p>Class-conditional ImageNet 256 × 256. We compare the original decoder, LP-GANs without paired supervision, and full LP-GANs across B/2, M/2, L/2, and XL/2.</p>
+      </div>
+      <p class="figure-setup evaluation-setup">The official iMF protocol uses torch-fidelity and its reference statistics; the OpenAI protocol uses TensorFlow Inception and a different reference. All comparisons below are within the same protocol.</p>
+      <div class="table-block" id="scale-table">
+        <div class="table-heading"><span>Table 1</span><h3 id="scale-table-title">Effect of paired supervision across model scales</h3></div>
+        <div class="table-scroll" role="region" aria-labelledby="scale-table-title" tabindex="0">
+          <table aria-describedby="scale-table-note">
+            <caption class="sr-only">iMF gFID across four model scales, two evaluation protocols, and three decoder settings</caption>
+            <thead>
+              <tr><th rowspan="2" scope="col">Decoder setting</th><th colspan="4" scope="colgroup">gFID w/o CFG ↓</th><th colspan="4" scope="colgroup">gFID w/ CFG ↓</th></tr>
+              <tr><th scope="col">iMF-B/2</th><th scope="col">iMF-M/2</th><th scope="col">iMF-L/2</th><th scope="col">iMF-XL/2</th><th scope="col">iMF-B/2</th><th scope="col">iMF-M/2</th><th scope="col">iMF-L/2</th><th scope="col">iMF-XL/2</th></tr>
+            </thead>
+            <tbody>
+              <tr class="group-row"><th colspan="9" scope="colgroup">Official iMF / torch-fidelity</th></tr>
+<tr><th scope="row">Original decoder</th><td>16.58</td><td>11.92</td><td>9.28</td><td>9.78</td><td>3.37</td><td>2.27</td><td>1.86</td><td>1.73</td></tr>
+<tr><th scope="row">LP-GANs w/o PS</th><td>19.43</td><td>15.58</td><td>11.92</td><td>11.96</td><td>2.55</td><td>2.07</td><td>1.78</td><td>1.69</td></tr>
+<tr class="lpgan-row"><th scope="row">LP-GANs w/ PS</th><td>13.39</td><td>11.20</td><td>8.49</td><td>8.51</td><td>2.08</td><td>1.73</td><td>1.48</td><td>1.32</td></tr>
+<tr class="group-row"><th colspan="9" scope="colgroup">OpenAI</th></tr>
+<tr><th scope="row">Original decoder</th><td>16.41</td><td>11.92</td><td>9.26</td><td>9.41</td><td>3.47</td><td>2.40</td><td>1.90</td><td>1.80</td></tr>
+<tr><th scope="row">LP-GANs w/o PS</th><td>18.99</td><td>15.11</td><td>11.63</td><td>11.12</td><td>2.56</td><td>2.06</td><td>1.82</td><td>1.67</td></tr>
+<tr class="lpgan-row"><th scope="row">LP-GANs w/ PS</th><td>13.64</td><td>10.66</td><td>8.52</td><td>8.52</td><td>2.14</td><td>1.77</td><td>1.51</td><td>1.51</td></tr>
+
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note" id="scale-table-note">Results reported in the paper; lower gFID is better. Bold rows indicate the best results within each protocol. CFG column groups refer to evaluation-time guidance. PS denotes paired supervision.</p>
+      </div>
+      <p class="result-readout">Full LP-GANs improve guided and unguided gFID at every tested scale under both protocols. Under the official protocol, guided iMF-XL/2 gFID improves from 1.73 to 1.32.</p>
+      <p class="figure-readout">Without PS, guided generation improves but unguided generation degrades across all four scales. Adding paired supervision improves both settings.</p>
+    </section>
+
+    <section id="efficiency" class="section method-section">
+      <div class="shell">
+        <div class="section-label">04 / Efficiency</div>
+        <div class="section-head">
+          <h2>The cost of<br>decoder refinement</h2>
+          <p>LP-GANs add adversarial refinement to an existing pretrained latent model. Five epochs cost 64–88 H100 GPU-hours across the four iMF scales.</p>
+        </div>
+        <div class="table-block" id="cost-table">
+  <div class="table-heading"><span>Table 2</span><h3 id="cost-table-title">Latent-prior pretraining and decoder refinement</h3></div>
+  <div class="table-scroll" role="region" aria-labelledby="cost-table-title" tabindex="0">
+    <table aria-describedby="cost-table-note">
+      <caption class="sr-only">Latent-prior pretraining and decoder refinement</caption>
+      <thead><tr><th scope="col">Model</th><th scope="col">Tokenizer (H100-h)</th><th scope="col">Latent generator (H100-h)</th><th scope="col">LP-GANs refinement (H100-h)</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">iMF-B/2</th><td>750</td><td>440</td><td>64</td></tr>
+        <tr><th scope="row">iMF-M/2</th><td>750</td><td>860</td><td>66</td></tr>
+        <tr><th scope="row">iMF-L/2</th><td>750</td><td>2,000</td><td>72</td></tr>
+        <tr><th scope="row">iMF-XL/2</th><td>750</td><td>3,800</td><td>88</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="table-note" id="cost-table-note">Reported H100 GPU-hour estimates. Tokenizer and latent-generator costs are FLOPs-based estimates; LP-GANs costs cover five epochs of decoder refinement and exclude pretraining. These are marginal refinement costs for an existing latent model.</p>
+</div>
+        <p class="result-readout">Refining the iMF-XL/2 decoder takes about 88 H100 GPU-hours and reaches guided gFID 1.32 under the official protocol.</p>
+        <p class="figure-readout">These figures describe the additional cost of refining an existing system. Obtaining its pretrained tokenizer and latent generator has a separate cost.</p>
+      </div>
+    </section>
+
+    <section id="analysis" class="section shell">
+      <div class="section-label">05 / Analysis</div>
+      <div class="section-head">
+        <h2>What makes<br>refinement work?</h2>
+        <p>We study the role of paired supervision, the trajectory level used to construct paired latents, and which inherited component to update.</p>
+      </div>
+      <div class="subsection-head">
+        <h3>Paired latents balance generation awareness and source correspondence</h3>
+        <p>On iMF-B/2 under the OpenAI protocol, PS helps across trajectory levels η ∈ [0, 0.7], with the lowest guided gFID at η = 0.3. At high noise levels, source correspondence weakens and the paired objective loses its benefit.</p>
+      </div>
+      <figure class="paper-figure epoch-figure">
+        <a href="assets/eta_sweep_cfg.pdf" target="_blank" rel="noopener noreferrer"><img src="assets/eta_sweep_cfg.png" width="1293" height="703" alt="iMF-B/2 guided gFID across trajectory levels: paired supervision compared with LP-GANs without paired supervision under the OpenAI protocol." loading="lazy" decoding="async"></a>
+        <figcaption>Trajectory-level sensitivity, OpenAI protocol. The dashed line denotes LP-GANs w/o PS (2.56). The best paired setting reaches 2.14 at η = 0.3; η = 1.0 reaches 8.67 and lies outside the plotted range.</figcaption>
+      </figure>
+      <div class="table-block" id="scope-table">
+  <div class="table-heading"><span>Table 3</span><h3 id="scope-table-title">Which component should be refined?</h3></div>
+  <div class="table-scroll" role="region" aria-labelledby="scope-table-title" tabindex="0">
+    <table aria-describedby="scope-table-note">
+      <caption class="sr-only">Which component should be refined?</caption>
+      <thead><tr><th scope="col">Update scope</th><th scope="col">gFID w/ CFG ↓</th><th scope="col">gFID w/o CFG ↓</th><th scope="col">H100-h / epoch ↓</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Frozen</th><td>3.47</td><td>16.41</td><td>0</td></tr>
+        <tr class="lpgan-row"><th scope="row">Decoder-only</th><td>2.14</td><td>13.64</td><td>12.7</td></tr>
+        <tr><th scope="row">Generator-only</th><td>3.91</td><td>22.33</td><td>11.5</td></tr>
+        <tr><th scope="row">Joint</th><td>2.40</td><td>17.25</td><td>13.9</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="table-note" id="scope-table-note">iMF-B/2, OpenAI protocol. The decoder-only setting gives the lowest gFID among the tested update scopes; generator-only refinement has the lowest nonzero per-epoch cost.</p>
+</div>
+      <div class="subsection-head">
+        <h3>Decoder refinement transfers across latent generators</h3>
+        <p>LP-GANs also improve MeanFlow, DMF, and TiTok-L32 under both protocols. The generator and sampling procedure remain unchanged.</p>
+      </div>
+      <div class="table-block" id="generalization-table">
+  <div class="table-heading"><span>Table 4</span><h3 id="generalization-table-title">Beyond the iMF family</h3></div>
+  <div class="table-scroll" role="region" aria-labelledby="generalization-table-title" tabindex="0">
+    <table aria-describedby="generalization-table-note">
+      <caption class="sr-only">Beyond the iMF family</caption>
+      <thead><tr><th scope="col">Latent generator</th><th scope="col">Evaluation protocol</th><th scope="col">Original decoder gFID ↓</th><th scope="col">LP-GANs gFID ↓</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">MeanFlow-XL/2</th><td>Official iMF</td><td>3.34</td><td>2.94</td></tr>
+        <tr><th scope="row">MeanFlow-XL/2</th><td>OpenAI</td><td>3.49</td><td>2.98</td></tr>
+        <tr><th scope="row">DMF-XL/2+</th><td>Official iMF</td><td>2.22</td><td>1.91</td></tr>
+        <tr><th scope="row">DMF-XL/2+</th><td>OpenAI</td><td>2.40</td><td>1.95</td></tr>
+        <tr><th scope="row">TiTok-L32</th><td>Official iMF</td><td>2.65</td><td>1.90</td></tr>
+        <tr><th scope="row">TiTok-L32</th><td>OpenAI</td><td>2.81</td><td>1.98</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="table-note" id="generalization-table-note">ImageNet 256 × 256; lower gFID is better. Compare values within the same evaluation protocol. TiTok retains its eight-step MaskGIT sampler.</p>
+</div>
+      <p class="result-readout">The same decoder-refinement principle applies to continuous flow-based priors and discrete token generators.</p>
+    </section>
+
+    <section id="samples" class="section collapse-section">
+      <div class="shell">
+        <div class="section-label">06 / Samples</div>
+        <div class="section-head">
+          <h2>Before and after refinement</h2>
+          <p>Selected generated samples from the paper. Each strip compares two decoder settings under the corresponding latent generator.</p>
+        </div>
+        <p class="figure-setup">iMF-XL/2. Top: original decoder. Bottom: LP-GANs w/ PS.</p>
+        <figure class="paper-figure"><img src="assets/samples/baseline_vs_lpgan_980_volcano.webp" width="2069" height="515" alt="Class 980: volcano generated samples: original decoder in the top row and LP-GANs in the bottom row." loading="lazy" decoding="async"><figcaption>Class 980: volcano. Top: original decoder. Bottom: LP-GANs w/ PS.</figcaption></figure>
+<figure class="paper-figure"><img src="assets/samples/baseline_vs_lpgan_979_valley.webp" width="2069" height="515" alt="Class 979: valley generated samples: original decoder in the top row and LP-GANs in the bottom row." loading="lazy" decoding="async"><figcaption>Class 979: valley. Top: original decoder. Bottom: LP-GANs w/ PS.</figcaption></figure>
+<figure class="paper-figure"><img src="assets/samples/baseline_vs_lpgan_088_macaw.webp" width="2069" height="515" alt="Class 88: macaw generated samples: original decoder in the top row and LP-GANs in the bottom row." loading="lazy" decoding="async"><figcaption>Class 88: macaw. Top: original decoder. Bottom: LP-GANs w/ PS.</figcaption></figure>
+
+        <div class="subsection-head"><h3>The effect of paired supervision</h3></div>
+        <p class="figure-setup">iMF-XL/2. Top: LP-GANs w/o PS. Bottom: LP-GANs w/ PS.</p>
+        <figure class="paper-figure"><img src="assets/samples/without_vs_with_pair_022_bald_eagle.webp" width="2069" height="515" alt="Class 22: bald eagle generated samples: LP-GANs without paired supervision in the top row and with paired supervision in the bottom row." loading="lazy" decoding="async"><figcaption>Class 22: bald eagle. Top: LP-GANs w/o PS. Bottom: LP-GANs w/ PS.</figcaption></figure>
+<figure class="paper-figure"><img src="assets/samples/without_vs_with_pair_094_hummingbird.webp" width="2069" height="515" alt="Class 94: hummingbird generated samples: LP-GANs without paired supervision in the top row and with paired supervision in the bottom row." loading="lazy" decoding="async"><figcaption>Class 94: hummingbird. Top: LP-GANs w/o PS. Bottom: LP-GANs w/ PS.</figcaption></figure>
+<figure class="paper-figure"><img src="assets/samples/without_vs_with_pair_975_lakeside.webp" width="2069" height="515" alt="Class 975: lakeside generated samples: LP-GANs without paired supervision in the top row and with paired supervision in the bottom row." loading="lazy" decoding="async"><figcaption>Class 975: lakeside. Top: LP-GANs w/o PS. Bottom: LP-GANs w/ PS.</figcaption></figure>
+
+        <div class="subsection-head"><h3>Other latent generators</h3></div>
+        <p class="figure-setup">Eight selected classes per model. Top: original decoder. Bottom: LP-GANs.</p>
+        <figure class="paper-figure"><img src="assets/samples/imf_m_selected.webp" width="2048" height="512" alt="iMF-M/2 generated samples across eight selected classes: original decoder in the top row and LP-GANs in the bottom row." loading="lazy" decoding="async"><figcaption>iMF-M/2, eight selected ImageNet classes. Top: original decoder. Bottom: LP-GANs.</figcaption></figure>
+<figure class="paper-figure"><img src="assets/samples/dmf_xl_selected.webp" width="2048" height="512" alt="DMF-XL/2+ generated samples across eight selected classes: original decoder in the top row and LP-GANs in the bottom row." loading="lazy" decoding="async"><figcaption>DMF-XL/2+, eight selected ImageNet classes. Top: original decoder. Bottom: LP-GANs.</figcaption></figure>
+<figure class="paper-figure"><img src="assets/samples/meanflow_xl_selected.webp" width="2048" height="512" alt="MeanFlow-XL/2 generated samples across eight selected classes: original decoder in the top row and LP-GANs in the bottom row." loading="lazy" decoding="async"><figcaption>MeanFlow-XL/2, eight selected ImageNet classes. Top: original decoder. Bottom: LP-GANs.</figcaption></figure>
+<figure class="paper-figure"><img src="assets/samples/titok_l32_selected.webp" width="2048" height="512" alt="TiTok-L32 generated samples across eight selected classes: original decoder in the top row and LP-GANs in the bottom row." loading="lazy" decoding="async"><figcaption>TiTok-L32, eight selected ImageNet classes. Top: original decoder. Bottom: LP-GANs.</figcaption></figure>
+
+      </div>
+    </section>
+
+    <section class="section shell takeaways">
+      <div class="section-label">07 / Takeaways</div>
+      <ol>
+        <li><span class="takeaway-text">Pretrained generative structure can be inherited, focusing adversarial learning on generation-time decoder refinement.</span></li>
+        <li><span class="takeaway-text">Paired supervision anchors the decoder and improves both guided and unguided generation across the tested iMF scales.</span></li>
+        <li><span class="takeaway-text">Decoder refinement improves iMF, MeanFlow, DMF, and TiTok-L32 while retaining their original sampling procedures.</span></li>
+        <li><span class="takeaway-text">The refined decoder introduces no additional network at generation time; the discriminator is used only during training.</span></li>
+      </ol>
+    </section>
+
+    <section id="citation" class="section citation">
+      <div class="shell">
+        <div class="section-label">08 / Citation</div>
+        <div class="citation-head">
+          <h2>Build on our work</h2>
+          <a href="https://github.com/WenjieShu/Latent-Prior-GAN" target="_blank" rel="noopener noreferrer">View code ↗</a>
+        </div>
+        <pre><code id="bibtex-code">@article{shu2026latent,
+  title   = {Latent Prior GANs: Efficient Decoder Refinement via Inherited Generative Structure},
+  author  = {Shu, Wenjie and Fang, Xianghong and Kong, Dehan and Rudner, Tim G. J.},
+  journal = {arXiv},
+  year    = {2026}
+}</code></pre>
+        <button class="copy-button" id="copy-bibtex" type="button">Copy BibTeX</button>
+        <span class="sr-only" id="copy-status" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="shell"><span>Latent Prior GANs · 2026</span><a href="#top">Back to top ↑</a></div></footer>
+  <script src="script.js"></script>
+</body>
+</html>
