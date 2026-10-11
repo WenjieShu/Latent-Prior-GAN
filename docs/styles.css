@@ -241,6 +241,8 @@ footer a { color: inherit; }
 
 /* FDDA uses the reference project's typography, spacing, and section structure. */
 .paper-figure img, .paper-figure.full-span img { background: transparent; border: 0; mix-blend-mode: normal; }
+/* Blend Figure 1's white canvas into the motivation section background. */
+#idea .paper-figure img { mix-blend-mode: multiply; }
 .paper-figure.full-span { min-width: 0; }
 .paradigm-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px; }
 .paradigm-grid p, .plot-labels { font-size: 13px; text-align: center; }
