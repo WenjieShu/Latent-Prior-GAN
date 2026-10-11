@@ -8,7 +8,7 @@
 [![Project Page](https://img.shields.io/badge/Project-Page-3b6ea8.svg)](https://wenjieshu.github.io/Latent-Prior-GAN/)
 [![Homepage](https://img.shields.io/badge/Wenjie%20Shu-Homepage-blue)](https://wenjieshu.github.io/)
 
-**[Wenjie Shu](https://wenjieshu.github.io/)<sup>1</sup> · [Xianghong Fang](https://sunset-clouds.github.io/)<sup>1,&#42;</sup> · Dehan Kong<sup>1</sup> · Tim G. J. Rudner<sup>1,2</sup>**
+**[Wenjie Shu](https://wenjieshu.github.io/)<sup>1,&#42;</sup> · [Xianghong Fang](https://sunset-clouds.github.io/)<sup>1,&#42;</sup> · Dehan Kong<sup>1</sup> · Tim G. J. Rudner<sup>1,2</sup>**
 
 <sup>1</sup>University of Toronto &nbsp;&nbsp; <sup>2</sup>Vijil
 
