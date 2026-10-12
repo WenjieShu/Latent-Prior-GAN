@@ -6,6 +6,7 @@
 
 [![Code](https://img.shields.io/badge/GitHub-Code-black?logo=github)](https://github.com/WenjieShu/Latent-Prior-GAN)
 [![Project Page](https://img.shields.io/badge/Project-Page-3b6ea8.svg)](https://wenjieshu.github.io/Latent-Prior-GAN/)
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-Checkpoints-ffcc4d?logo=huggingface&logoColor=black)](https://huggingface.co/wenjieshu/lpgan)
 [![Homepage](https://img.shields.io/badge/Wenjie%20Shu-Homepage-blue)](https://wenjieshu.github.io/)
 
 **[Wenjie Shu](https://wenjieshu.github.io/)<sup>1,&#42;</sup> · [Xianghong Fang](https://sunset-clouds.github.io/)<sup>1,&#42;,†</sup> · Dehan Kong<sup>1</sup> · Tim G. J. Rudner<sup>1,2</sup>**
