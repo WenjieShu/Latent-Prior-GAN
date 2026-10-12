@@ -126,9 +126,8 @@ class DecoderCheckpointContracts(unittest.TestCase):
         module = nn.Module()
         if family == "titok":
             module.model = nn.Module()
-            module.model.model = nn.Module()
             for key in ("decoder", "pixel_quantize", "pixel_decoder"):
-                setattr(module.model.model, key, nn.Linear(2, 2))
+                setattr(module.model, key, nn.Linear(2, 2))
         else:
             module.vae = nn.Module()
             module.vae.encoder = nn.Linear(2, 2)
@@ -144,6 +143,17 @@ class DecoderCheckpointContracts(unittest.TestCase):
             self.assertGreater(info["decoder_tensors"], 0)
             for key, value in destination.state_dict().items():
                 torch.testing.assert_close(value, source.state_dict()[key])
+
+    def test_legacy_nested_titok_keys_restore_current_tokenizer(self):
+        source, destination = self.tokenizer("titok"), self.tokenizer("titok")
+        state = {"module.tokenizer.model." + key: value for key, value in source.state_dict().items()}
+        info = load_tokenizer_state(destination, state, "titok")
+        self.assertEqual(info["decoder_tensors"], 6)
+        for key, value in destination.state_dict().items():
+            torch.testing.assert_close(value, source.state_dict()[key])
+        partial = {key: value for key, value in state.items() if ".pixel_quantize." not in key}
+        with self.assertRaisesRegex(ValueError, "Incomplete adapted decoder"):
+            load_tokenizer_state(destination, partial, "titok")
 
     def test_reject_empty_partial_and_wrong_shape(self):
         module = self.tokenizer()

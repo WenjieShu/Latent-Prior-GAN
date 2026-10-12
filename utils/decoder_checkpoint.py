@@ -30,6 +30,8 @@ def load_tokenizer_state(tokenizer, state, family):
     for key, value in state.items():
         key = key.removeprefix("module.")
         key = key.removeprefix("tokenizer.")
+        if family == "titok" and key not in expected and key.startswith("model.model."):
+            key = key.removeprefix("model.")
         if key in expected:
             if value.shape != expected[key].shape:
                 raise ValueError(f"Decoder tensor shape mismatch: {key}: {value.shape} != {expected[key].shape}")
@@ -38,7 +40,10 @@ def load_tokenizer_state(tokenizer, state, family):
             selected[key] = value
         elif key.startswith(("vae.", "model.", "mean", "std")):
             raise ValueError(f"Unexpected tokenizer tensor: {key}")
-    prefixes = ("model.model.decoder.", "model.model.pixel_quantize.", "model.model.pixel_decoder.") if family == "titok" else ("vae.decoder.",)
+    prefixes = (
+        "model.decoder.", "model.pixel_quantize.", "model.pixel_decoder.",
+        "model.model.decoder.", "model.model.pixel_quantize.", "model.model.pixel_decoder.",
+    ) if family == "titok" else ("vae.decoder.",)
     required = {k for k in expected if k.startswith(prefixes)}
     missing = required - selected.keys()
     if not required or missing:
